@@ -1,0 +1,31 @@
+{
+  "api_calls": 0,
+  "demos": [
+    {
+      "company_id": "DEMO0-CO",
+      "demo_id": "DEMO0",
+      "document_count": 8,
+      "finance_transaction_id": "TXN-DEMO0",
+      "folder": "demo_0_complete_batch"
+    },
+    {
+      "company_id": "DEMO1-CO",
+      "demo_id": "DEMO1",
+      "document_count": 2,
+      "finance_transaction_id": "TXN-DEMO1",
+      "folder": "demo_1_manual_today_risk"
+    },
+    {
+      "company_id": "DEMO2-CO",
+      "demo_id": "DEMO2",
+      "document_count": 2,
+      "finance_transaction_id": "TXN-DEMO2",
+      "folder": "demo_2_reported_delay"
+    }
+  ],
+  "generator": "scripts/generate_final_demo_portfolio.py",
+  "portfolio_version": "judge-demo-final.v1",
+  "research_reference": "reference/데모1_2_간소화_시나리오_원본.xlsx",
+  "synthetic": true,
+  "total_document_count": 12
+}

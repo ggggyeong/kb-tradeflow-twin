@@ -1,0 +1,76 @@
+{
+  "business_field_matching": {
+    "invoice_to_booking": {
+      "relations": [
+        {
+          "points": 50,
+          "relation": "seller=shipper"
+        },
+        {
+          "points": 40,
+          "relation": "description_of_goods=commodity"
+        }
+      ],
+      "score": 90,
+      "verdict": "MATCH"
+    }
+  },
+  "company_id": "DEMO1-CO",
+  "demo_id": "DEMO1",
+  "document_count": 2,
+  "documents": [
+    {
+      "bytes": 4097,
+      "doc_type": "BOOKING_CONFIRMATION",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Booking.booking_no",
+        "Booking.commodity",
+        "Booking.etd",
+        "Booking.port_of_discharge",
+        "Booking.port_of_loading",
+        "Booking.shipper",
+        "Booking.vessel_name",
+        "Booking.voyage_no"
+      ],
+      "file_name": "01_booking.pdf",
+      "pages": 1,
+      "sha256": "227586e324e49ba17911cfcafca030ed8fd0ee24567caeee9f0ceb708d38f71d",
+      "source_references": {
+        "company_id": "DEMO1-CO",
+        "finance_transaction_id": "TXN-DEMO1"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 4454,
+      "doc_type": "COMMERCIAL_INVOICE",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Invoice.buyer",
+        "Invoice.currency",
+        "Invoice.description_of_goods",
+        "Invoice.invoice_no",
+        "Invoice.payment_terms",
+        "Invoice.seller"
+      ],
+      "file_name": "02_invoice.pdf",
+      "pages": 1,
+      "sha256": "d9656236369c7b8cf267722eb0681a42bd8d6a01c1311573289cc998538e76aa",
+      "source_references": {
+        "company_id": "DEMO1-CO",
+        "finance_transaction_id": "TXN-DEMO1"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    }
+  ],
+  "expected_case_id_after_field_matching": "CASE-DEMO1",
+  "expected_missing_documents": [
+    "BILL_OF_LADING"
+  ],
+  "finance_transaction_id": "TXN-DEMO1",
+  "generator": "scripts/generate_final_demo_portfolio.py",
+  "manifest_version": "judge-demo-final.v1",
+  "synthetic": true,
+  "transaction_reference_intentionally_omitted": true
+}

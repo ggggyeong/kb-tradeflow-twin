@@ -1,0 +1,60 @@
+{
+  "domain_contract": {
+    "core_count": 22,
+    "field_contract_sha256": "fccd5d751556e92a33cbe1c3931bb2e8475434b7edc8dae3448076d30e285bcd",
+    "field_count": 98,
+    "payment_example_count": 21,
+    "payment_terms_sha256": "8af207ba36a674fd0596250d202420d589f14f73e01c9a58184f2fbf3cf702d8"
+  },
+  "files": [
+    {
+      "bytes": 24278,
+      "kind": "xlsx",
+      "path": "data/domain_inputs/active/document_field_dictionary.xlsx",
+      "sha256": "fccd5d751556e92a33cbe1c3931bb2e8475434b7edc8dae3448076d30e285bcd"
+    },
+    {
+      "bytes": 20332,
+      "kind": "xlsx",
+      "path": "data/domain_inputs/active/payment_terms_cases.xlsx",
+      "sha256": "8af207ba36a674fd0596250d202420d589f14f73e01c9a58184f2fbf3cf702d8"
+    },
+    {
+      "bytes": 162497,
+      "kind": "pdf",
+      "pages": 1,
+      "path": "data/template_references/booking_one_v1.pdf",
+      "sha256": "5cf89cc60a0a910f3edc02b5838a7ad510997946b2dca4a4651f41d43051d59f"
+    },
+    {
+      "bytes": 34640,
+      "kind": "pdf",
+      "pages": 1,
+      "path": "data/template_references/bill_of_lading_v1.pdf",
+      "sha256": "b66a22486a8d5b853f2e34e3b95333b0c2b47d4bdc1c78a81b00f20f9380163e"
+    },
+    {
+      "bytes": 28889,
+      "kind": "pdf",
+      "pages": 1,
+      "path": "data/template_references/commercial_invoice_v1.pdf",
+      "sha256": "a6d50e7b1da914598178f7fbc3401dff6559830e40bbfdf4e61cfc54768cccc5"
+    },
+    {
+      "bytes": 1807672,
+      "kind": "pdf",
+      "pages": 27,
+      "path": "data/contracts/build_spec_v16.pdf",
+      "sha256": "cfbc3fbd83e59f200df4abbb69c865672eaf8c82c3a1722fbdb797bf6bd3d4ad"
+    },
+    {
+      "bytes": 231827,
+      "kind": "pdf",
+      "pages": 31,
+      "path": "data/contracts/native_agent_contract_v1.pdf",
+      "sha256": "2c72dd7ad24098bee6d0b1d720bc4b4c1ec0fb795716b01dc14914283bfa5f9d"
+    }
+  ],
+  "immutable": true,
+  "manifest_version": "v16.0"
+}

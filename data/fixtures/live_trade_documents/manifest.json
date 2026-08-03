@@ -1,0 +1,142 @@
+{
+  "manifest_version": "live-8pdf-v1",
+  "synthetic": true,
+  "generator": "scripts/generate_live_trade_documents.py",
+  "document_count": 8,
+  "documents": [
+    {
+      "file_name": "01_TRD-001_booking.pdf",
+      "doc_type": "BOOKING_CONFIRMATION",
+      "transaction_reference": "TRD-001",
+      "finance_transaction_id": "TXN001",
+      "company_id": "A",
+      "bytes": 3168,
+      "pages": 1,
+      "sha256": "3d18949d72cd09ac88a2fa36ed3651609940a11ecb19fe7c120e8707b33d8f91",
+      "expected_missing_core_fields": []
+    },
+    {
+      "file_name": "02_TRD-001_invoice.pdf",
+      "doc_type": "COMMERCIAL_INVOICE",
+      "transaction_reference": "TRD-001",
+      "finance_transaction_id": "TXN001",
+      "company_id": "A",
+      "bytes": 3124,
+      "pages": 1,
+      "sha256": "ba9dbe3631d3ee0e42a9e0f46069516fc27747f35b74844e8cdab2925d64c696",
+      "expected_missing_core_fields": []
+    },
+    {
+      "file_name": "03_TRD-001_bill_of_lading.pdf",
+      "doc_type": "BILL_OF_LADING",
+      "transaction_reference": "TRD-001",
+      "finance_transaction_id": "TXN001",
+      "company_id": "A",
+      "bytes": 3187,
+      "pages": 1,
+      "sha256": "43fd597ab0b3328f383fea35f56a73d56da39a345edae86aa673b1e16d6ea5f3",
+      "expected_missing_core_fields": []
+    },
+    {
+      "file_name": "04_TRD-002_booking.pdf",
+      "doc_type": "BOOKING_CONFIRMATION",
+      "transaction_reference": "TRD-002",
+      "finance_transaction_id": "TXN002",
+      "company_id": "A",
+      "bytes": 3163,
+      "pages": 1,
+      "sha256": "ddf3f2f127bdd3844c48dde995636940eabb1698a407ae1763bde89eda69058e",
+      "expected_missing_core_fields": []
+    },
+    {
+      "file_name": "05_TRD-002_invoice.pdf",
+      "doc_type": "COMMERCIAL_INVOICE",
+      "transaction_reference": "TRD-002",
+      "finance_transaction_id": "TXN002",
+      "company_id": "A",
+      "bytes": 3124,
+      "pages": 1,
+      "sha256": "96025a814436b7534e344db0cafbce02cf1c403e1f05589d6e04b29708fb4792",
+      "expected_missing_core_fields": []
+    },
+    {
+      "file_name": "06_TRD-002_bill_of_lading_missing_on_board_date.pdf",
+      "doc_type": "BILL_OF_LADING",
+      "transaction_reference": "TRD-002",
+      "finance_transaction_id": "TXN002",
+      "company_id": "A",
+      "bytes": 3361,
+      "pages": 1,
+      "sha256": "b19e84e436dd004bc304816a807ead08f8a7844bb8cef4811498ed8e48a5d59a",
+      "expected_missing_core_fields": [
+        "on_board_date"
+      ]
+    },
+    {
+      "file_name": "07_TRD-003_booking.pdf",
+      "doc_type": "BOOKING_CONFIRMATION",
+      "transaction_reference": "TRD-003",
+      "finance_transaction_id": "TXN003",
+      "company_id": "A",
+      "bytes": 3165,
+      "pages": 1,
+      "sha256": "9f8da0a8dab81df4a107608d483e4af8e9ee47500fe555451ddf27aa61c98f2b",
+      "expected_missing_core_fields": []
+    },
+    {
+      "file_name": "08_TRD-003_invoice.pdf",
+      "doc_type": "COMMERCIAL_INVOICE",
+      "transaction_reference": "TRD-003",
+      "finance_transaction_id": "TXN003",
+      "company_id": "A",
+      "bytes": 3122,
+      "pages": 1,
+      "sha256": "d765cc98fa2ef58aaf91f708a596a5ab59de3a866d67528e8bf1dd716c43f62d",
+      "expected_missing_core_fields": []
+    }
+  ],
+  "transactions": [
+    {
+      "transaction_reference": "TRD-001",
+      "finance_transaction_id": "TXN001",
+      "company_id": "A",
+      "expected_documents": [
+        "BOOKING_CONFIRMATION",
+        "COMMERCIAL_INVOICE",
+        "BILL_OF_LADING"
+      ],
+      "expected_missing_documents": [],
+      "expected_missing_core_fields": [],
+      "manual_override_value": null
+    },
+    {
+      "transaction_reference": "TRD-002",
+      "finance_transaction_id": "TXN002",
+      "company_id": "A",
+      "expected_documents": [
+        "BOOKING_CONFIRMATION",
+        "COMMERCIAL_INVOICE",
+        "BILL_OF_LADING"
+      ],
+      "expected_missing_documents": [],
+      "expected_missing_core_fields": [
+        "BILL_OF_LADING.on_board_date"
+      ],
+      "manual_override_value": "Sep 03, 2026"
+    },
+    {
+      "transaction_reference": "TRD-003",
+      "finance_transaction_id": "TXN003",
+      "company_id": "A",
+      "expected_documents": [
+        "BOOKING_CONFIRMATION",
+        "COMMERCIAL_INVOICE"
+      ],
+      "expected_missing_documents": [
+        "BILL_OF_LADING"
+      ],
+      "expected_missing_core_fields": [],
+      "manual_override_value": null
+    }
+  ]
+}

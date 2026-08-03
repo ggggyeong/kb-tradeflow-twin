@@ -1,0 +1,353 @@
+{
+  "cases": [
+    {
+      "business_field_matching": {
+        "bill_of_lading_to_case": {
+          "relations": [
+            {
+              "points": 60,
+              "relation": "bl_no=booking.bl_no"
+            },
+            {
+              "points": 20,
+              "relation": "shipper=shipper"
+            },
+            {
+              "points": 5,
+              "relation": "port_of_loading"
+            },
+            {
+              "points": 5,
+              "relation": "port_of_discharge"
+            },
+            {
+              "points": 5,
+              "relation": "vessel_name"
+            },
+            {
+              "points": 5,
+              "relation": "voyage_no"
+            }
+          ],
+          "score": 100,
+          "verdict": "MATCH"
+        },
+        "invoice_to_booking": {
+          "relations": [
+            {
+              "points": 50,
+              "relation": "seller=shipper"
+            },
+            {
+              "points": 40,
+              "relation": "description_of_goods=commodity"
+            }
+          ],
+          "score": 90,
+          "verdict": "MATCH"
+        }
+      },
+      "demo_case_id": "DEMO0",
+      "document_count": 3,
+      "expected_case_id_after_field_matching": "CASE-DEMO0",
+      "expected_missing_documents": [],
+      "file_names": [
+        "01_booking.pdf",
+        "02_invoice.pdf",
+        "03_bill_of_lading.pdf"
+      ],
+      "finance_transaction_id": "TXN-DEMO0"
+    },
+    {
+      "business_field_matching": {
+        "bill_of_lading_to_case": {
+          "relations": [
+            {
+              "points": 60,
+              "relation": "bl_no=booking.bl_no"
+            },
+            {
+              "points": 20,
+              "relation": "shipper=shipper"
+            },
+            {
+              "points": 5,
+              "relation": "port_of_loading"
+            },
+            {
+              "points": 5,
+              "relation": "port_of_discharge"
+            },
+            {
+              "points": 5,
+              "relation": "vessel_name"
+            },
+            {
+              "points": 5,
+              "relation": "voyage_no"
+            }
+          ],
+          "score": 100,
+          "verdict": "MATCH"
+        },
+        "invoice_to_booking": {
+          "relations": [
+            {
+              "points": 50,
+              "relation": "seller=shipper"
+            },
+            {
+              "points": 40,
+              "relation": "description_of_goods=commodity"
+            }
+          ],
+          "score": 90,
+          "verdict": "MATCH"
+        }
+      },
+      "demo_case_id": "DEMO0B",
+      "document_count": 3,
+      "expected_case_id_after_field_matching": "CASE-DEMO0B",
+      "expected_missing_documents": [],
+      "file_names": [
+        "04_booking_demo0b.pdf",
+        "05_invoice_demo0b.pdf",
+        "06_bill_of_lading_demo0b.pdf"
+      ],
+      "finance_transaction_id": "TXN-DEMO0B"
+    },
+    {
+      "business_field_matching": {
+        "invoice_to_booking": {
+          "relations": [
+            {
+              "points": 50,
+              "relation": "seller=shipper"
+            },
+            {
+              "points": 40,
+              "relation": "description_of_goods=commodity"
+            }
+          ],
+          "score": 90,
+          "verdict": "MATCH"
+        }
+      },
+      "demo_case_id": "DEMO0C",
+      "document_count": 2,
+      "expected_case_id_after_field_matching": "CASE-DEMO0C",
+      "expected_missing_documents": [
+        "BILL_OF_LADING"
+      ],
+      "file_names": [
+        "07_booking_demo0c.pdf",
+        "08_invoice_demo0c.pdf"
+      ],
+      "finance_transaction_id": "TXN-DEMO0C"
+    }
+  ],
+  "company_id": "DEMO0-CO",
+  "demo_id": "DEMO0",
+  "document_count": 8,
+  "documents": [
+    {
+      "bytes": 3978,
+      "doc_type": "BOOKING_CONFIRMATION",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Booking.booking_no",
+        "Booking.commodity",
+        "Booking.etd",
+        "Booking.port_of_discharge",
+        "Booking.port_of_loading",
+        "Booking.shipper",
+        "Booking.vessel_name",
+        "Booking.voyage_no"
+      ],
+      "file_name": "01_booking.pdf",
+      "pages": 1,
+      "sha256": "45b0876cfbc2ff0c38c2a275146627df0971db80b99378e36d8b692bd6e3018d",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 4340,
+      "doc_type": "COMMERCIAL_INVOICE",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Invoice.buyer",
+        "Invoice.currency",
+        "Invoice.description_of_goods",
+        "Invoice.invoice_no",
+        "Invoice.payment_terms",
+        "Invoice.seller"
+      ],
+      "file_name": "02_invoice.pdf",
+      "pages": 1,
+      "sha256": "924c396df8c8a17d336f86e1a1841cd2ad5b6393cc06a4e5bf2afd95b3725c0c",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 4197,
+      "doc_type": "BILL_OF_LADING",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "B/L.bl_no",
+        "B/L.consignee",
+        "B/L.on_board_date",
+        "B/L.port_of_discharge",
+        "B/L.port_of_loading",
+        "B/L.shipper",
+        "B/L.vessel_name",
+        "B/L.voyage_no"
+      ],
+      "file_name": "03_bill_of_lading.pdf",
+      "pages": 1,
+      "sha256": "1366a86ac58a113e12dea76078a7e8e780fb58890cb96bf165ff7c60d159840f",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 3986,
+      "doc_type": "BOOKING_CONFIRMATION",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Booking.booking_no",
+        "Booking.commodity",
+        "Booking.etd",
+        "Booking.port_of_discharge",
+        "Booking.port_of_loading",
+        "Booking.shipper",
+        "Booking.vessel_name",
+        "Booking.voyage_no"
+      ],
+      "file_name": "04_booking_demo0b.pdf",
+      "pages": 1,
+      "sha256": "eb7e895ea50bcac4a0e6118d09592cdea631ea1899874ac86a97e838eecc633c",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0B"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 4343,
+      "doc_type": "COMMERCIAL_INVOICE",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Invoice.buyer",
+        "Invoice.currency",
+        "Invoice.description_of_goods",
+        "Invoice.invoice_no",
+        "Invoice.payment_terms",
+        "Invoice.seller"
+      ],
+      "file_name": "05_invoice_demo0b.pdf",
+      "pages": 1,
+      "sha256": "f72159e2f84675e17cb3d180bf606cd1805b53dc5462bcc2e929f83ca56a418e",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0B"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 4206,
+      "doc_type": "BILL_OF_LADING",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "B/L.bl_no",
+        "B/L.consignee",
+        "B/L.on_board_date",
+        "B/L.port_of_discharge",
+        "B/L.port_of_loading",
+        "B/L.shipper",
+        "B/L.vessel_name",
+        "B/L.voyage_no"
+      ],
+      "file_name": "06_bill_of_lading_demo0b.pdf",
+      "pages": 1,
+      "sha256": "f737ecc01d7578a363e6133795bb01ed577373c3fe8c11dfe7fd45f175d472eb",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0B"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 3982,
+      "doc_type": "BOOKING_CONFIRMATION",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Booking.booking_no",
+        "Booking.commodity",
+        "Booking.etd",
+        "Booking.port_of_discharge",
+        "Booking.port_of_loading",
+        "Booking.shipper",
+        "Booking.vessel_name",
+        "Booking.voyage_no"
+      ],
+      "file_name": "07_booking_demo0c.pdf",
+      "pages": 1,
+      "sha256": "be99bceaeedbba3b45375de4ce2e9ca3c296ff161a2c333f72084592948840ab",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0C"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    },
+    {
+      "bytes": 4337,
+      "doc_type": "COMMERCIAL_INVOICE",
+      "expected_missing_core_fields": [],
+      "extracted_core_fields": [
+        "Invoice.buyer",
+        "Invoice.currency",
+        "Invoice.description_of_goods",
+        "Invoice.invoice_no",
+        "Invoice.payment_terms",
+        "Invoice.seller"
+      ],
+      "file_name": "08_invoice_demo0c.pdf",
+      "pages": 1,
+      "sha256": "2ccf4d1ed0990f1631050fff637211140afd7c88cb4e0b4e54f63da2b4629be9",
+      "source_references": {
+        "company_id": "DEMO0-CO",
+        "finance_transaction_id": "TXN-DEMO0C"
+      },
+      "validation_mode": "generator_contract_no_external_dependencies"
+    }
+  ],
+  "expected_case_count": 3,
+  "expected_case_ids_after_field_matching": [
+    "CASE-DEMO0",
+    "CASE-DEMO0B",
+    "CASE-DEMO0C"
+  ],
+  "expected_document_type_counts": {
+    "BILL_OF_LADING": 2,
+    "BOOKING_CONFIRMATION": 3,
+    "COMMERCIAL_INVOICE": 3
+  },
+  "finance_transaction_id": "TXN-DEMO0",
+  "finance_transaction_ids": [
+    "TXN-DEMO0",
+    "TXN-DEMO0B",
+    "TXN-DEMO0C"
+  ],
+  "generator": "scripts/generate_final_demo_portfolio.py",
+  "manifest_version": "judge-demo-final.v2",
+  "synthetic": true,
+  "transaction_reference_intentionally_omitted": true
+}
