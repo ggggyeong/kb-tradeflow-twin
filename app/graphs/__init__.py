@@ -1,1 +1,1 @@
-"""LangGraph production graphs."""
+"""The single public LangGraph portfolio workflow."""

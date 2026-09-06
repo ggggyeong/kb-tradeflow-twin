@@ -1,1 +1,1 @@
-"""FastAPI boundary for the TradeFlow domain and graph services."""
+"""FastAPI boundary for the portfolio workflow."""

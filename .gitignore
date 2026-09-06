@@ -7,13 +7,10 @@ __pycache__/
 *.py[cod]
 .DS_Store
 tmp/
+output/
 data/object_store/
-data/uploads/
-data/backups/
-data/reports/
+data/knowledge/chroma_products/
 data/*.db
 data/*.sqlite
 reports/generated/
-artifacts/
-output/
 .langgraph_api/

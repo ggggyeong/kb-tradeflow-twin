@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.schemas.document import ClassificationResult
-from app.schemas.field_contract import DocumentType
+from app.schemas.document import ClassificationResult, DocumentType
 
 
 @dataclass(frozen=True)
 class TemplateProfile:
-    """Signature contract for one fixed template."""
+    """Small signature contract for one portfolio document type."""
 
-    template_id: str
     doc_type: DocumentType
     required_signatures: tuple[str, ...]
     supporting_signatures: tuple[str, ...]
@@ -18,19 +16,16 @@ class TemplateProfile:
 
 PROFILES = [
     TemplateProfile(
-        template_id="BOOKING_ONE_V1",
         doc_type=DocumentType.BOOKING_CONFIRMATION,
         required_signatures=("BOOKING RECEIPT NOTICE", "BOOKING NO"),
         supporting_signatures=("PROFORMA 1ST VESSEL ETD", "TRUNK VESSEL"),
     ),
     TemplateProfile(
-        template_id="BILL_OF_LADING_V1",
         doc_type=DocumentType.BILL_OF_LADING,
         required_signatures=("BILL OF LADING", "B/L NO"),
         supporting_signatures=("LADEN ON BOARD VESSEL", "PORT OF DISCHARGE"),
     ),
     TemplateProfile(
-        template_id="COMMERCIAL_INVOICE_V1",
         doc_type=DocumentType.COMMERCIAL_INVOICE,
         required_signatures=("COMMERCIAL INVOICE", "INVOICE NO"),
         supporting_signatures=("TERMS OF DELIVERY AND PAYMENT", "SIGNED BY"),
@@ -38,8 +33,8 @@ PROFILES = [
 ]
 
 
-def classify_fixed_template(text: str) -> ClassificationResult:
-    """Classify only the three supported templates without any model call."""
+def classify_trade_document(text: str) -> ClassificationResult:
+    """Classify the three supported trade documents with visible signatures."""
     normalized = " ".join(text.upper().replace("\u2019", "'").split())
     candidates: list[tuple[float, TemplateProfile, list[str]]] = []
     for profile in PROFILES:
@@ -61,25 +56,23 @@ def classify_fixed_template(text: str) -> ClassificationResult:
         return ClassificationResult(
             status="AUTO_CONFIRMED",
             doc_type=best.doc_type,
-            template_id=best.template_id,
             score=best_score,
             signals=signals,
-            model_calls=0,
         )
     if best_score >= 0.35:
         return ClassificationResult(
-            status="CONFIRM_REQUIRED",
+            status="REVIEW_REQUIRED",
             doc_type=best.doc_type,
-            template_id=best.template_id,
             score=best_score,
             signals=signals,
-            model_calls=0,
         )
     return ClassificationResult(
         status="UNSUPPORTED",
         doc_type=None,
-        template_id=None,
         score=best_score,
         signals=signals,
-        model_calls=0,
     )
+
+
+# Kept as a small import-compatible name while callers move to the portfolio API.
+classify_fixed_template = classify_trade_document

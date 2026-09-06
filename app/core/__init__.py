@@ -1,1 +1,1 @@
-"""Core configuration and runtime services."""
+"""Repository path constants."""

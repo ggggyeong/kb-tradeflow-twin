@@ -9,5 +9,5 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 uv venv "${RUNTIME_VENV}" --python 3.12
-VIRTUAL_ENV="${RUNTIME_VENV}" uv sync --active --all-groups
+VIRTUAL_ENV="${RUNTIME_VENV}" uv sync --active --extra dev
 echo "Environment ready: ${RUNTIME_VENV}"

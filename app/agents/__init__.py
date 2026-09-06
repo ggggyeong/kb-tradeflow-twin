@@ -1,1 +1,1 @@
-"""Eight native LangChain role agents coordinated by the Chat architecture."""
+"""Three small agents used by the portfolio workflow."""

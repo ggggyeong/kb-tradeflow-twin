@@ -1,363 +1,296 @@
-# KB TradeFlow Twin v16.0
+<div align="center">
 
-KB TradeFlow Twin은 Booking, Commercial Invoice, Bill of Lading과 고객 금융일정을 하나의 거래 상태로 연결하는 live 무역금융 멀티에이전트입니다. 사용자의 자연어 요청을 Planning Agent가 작업 목록으로 만들고, Supervisor Agent가 각 작업을 소유한 전문 Agent에 위임합니다. 날짜·금액·충돌·우선순위는 검증된 Tool과 XLSX 규칙이 계산하며, 모델은 계획·라우팅·설명만 담당합니다.
+# TradeFlow
 
-## 핵심 구조
+### 무역서류에서 금융일정 확인까지, 하나의 업무 흐름으로
 
-[`langgraph.json`](langgraph.json)은 심사·사용자 진입점을 `chat` 하나로 제한합니다.
+수출입 서류의 핵심 정보를 정리하고, 자금 일정의 충돌을 찾아<br/>
+관련 금융상품의 원문 근거와 함께 보고서로 제공하는 업무 자동화 프로토타입
 
-| 진입점 | 목적 | 주요 흐름 |
-| --- | --- | --- |
-| `chat` | 일반 대화와 전체 업무 요청 | Planning ↔ Supervisor 공통 제어, 전문 Agent, Human 확인, 최종 답변 |
+**PDF 문서 분석 · 3개 Agent · 금융상품 문서 검색 · PDF 보고서**
 
-`chat`의 공통 제어 흐름은 아래와 같습니다.
+[문제와 해결](#problem) · [결과물 미리보기](#preview) · [시스템 구조](#architecture) · [실행 방법](#quickstart)
 
-```text
-__start__
-  → planning_agent
-      ├─ 일상 대화: 즉시 답변 → __end__
-      └─ 업무 요청: 구조화된 Plan 생성
-          → supervisor_agent
-              → 선택된 specialist_agent (model ↔ tools)
-              → supervisor_agent가 Tool 결과 수집
-          → planning_agent가 남은 Plan 재확인
-              ├─ 다음 작업: supervisor_agent
-              ├─ 확인 필요: human_question → human_confirmation → planning_agent
-              └─ 완료: 근거 기반 최종 답변 → __end__
+</div>
+
+---
+
+<a id="overview"></a>
+## 1. 프로젝트 소개
+
+**“수출대금은 20일에 들어오는데, 대출 만기는 15일이라면?”**
+
+TradeFlow는 이런 일정 차이를 확인하고 관련 금융상품 정보를 찾는 과정을 연결합니다. 무역서류 분석, 금융일정 비교, 상품 문서 검색을 세 Agent에 나누어 맡기고 결과를 하나의 PDF 보고서로 구성했습니다.
+
+| 입력 | 처리 | 결과 |
+| :--- | :--- | :--- |
+| 무역서류 PDF + 예상 대금 유입일 + 금융일정 | 핵심 정보 추출 → 일정 충돌 분류 → 상품 근거 검색 | 문서 요약·충돌 이유·상품 원문 근거가 담긴 보고서 |
+
+대상 사용자는 수출입 기업의 자금 담당자와 관련 거래를 검토하는 금융 담당자입니다. 현재 범위는 **검토에 필요한 정보 정리와 날짜 비교를 자동화하는 프로토타입**입니다.
+
+<details>
+<summary><strong>전체 목차</strong></summary>
+
+1. [프로젝트 소개](#overview)
+2. [개발 배경과 해결하려는 문제](#problem)
+3. [사용 시나리오와 결과물](#preview)
+4. [주요 기능과 처리 흐름](#features)
+5. [시스템 구조와 기술 선택](#architecture)
+6. [설계하고 구현한 부분](#implementation)
+7. [구현 결과와 검증 범위](#validation)
+8. [실행 방법과 코드 안내](#quickstart)
+9. [현재 한계와 개선 방향](#limitations)
+
+</details>
+
+<a id="problem"></a>
+## 2. 개발 배경과 해결하려는 문제
+
+공모전을 준비하며 국제통상무역학과 친구들과 수출입 업무를 논의했습니다. 여러 서류에서 날짜와 금액을 찾고, 대금이 들어오는 시점과 돈을 지급해야 하는 시점을 따로 비교하는 반복 작업에 주목했습니다.
+
+책으로 학습한 AI Agent의 역할 분담 구조를 이 문제에 적용했습니다. 필요한 기능을 **서류 확인 → 금융일정 비교 → 상품정보 검색**으로 나누고, 각 단계의 결과를 다음 단계와 보고서에 전달하도록 구현했습니다.
+
+| 담당자가 확인해야 하는 일 | 프로젝트에서 구현한 기능 |
+| :--- | :--- |
+| 여러 PDF에서 날짜·금액·통화를 찾기 | 문서별 핵심 필드와 해당 페이지 추출 |
+| 대금 유입 전에 만기나 지급일이 오는지 비교하기 | 세 종류의 금융일정을 같은 날짜 기준으로 분류 |
+| 상황에 관련된 상품 자료를 찾아 읽기 | 충돌 유형으로 검색 범위를 좁히고 PDF 발췌문 반환 |
+| 확인한 내용을 별도 문서로 정리하기 | 분석 결과와 근거를 PDF 보고서로 구성 |
+
+<a id="preview"></a>
+## 3. 사용 시나리오와 결과물
+
+### 예시: 대금 유입보다 대출 만기가 5일 빠른 거래
+
+| 확인 항목 | 입력 또는 처리 결과 |
+| :--- | :--- |
+| 예상 대금 유입일 | 9월 20일 |
+| 해당 거래와 연결된 대출 만기 | 9월 15일 |
+| 일정 비교 결과 | 대출 만기가 5일 먼저 도래 → 날짜상 자금 공백 가능성 표시 |
+| 상품정보 검색 | 운전자금 대출 만기 유형에 연결된 금융상품 PDF 검색 |
+| 최종 출력 | 일정 차이, 검토할 상품정보, 파일명·페이지·발췌문을 보고서로 제공 |
+
+예상 대금 유입일과 금융일정은 사용자가 별도로 입력합니다. 서류의 선적일이나 송장 발행일을 결제일로 간주하지 않습니다.
+
+### 보고서 미리보기
+
+아래는 **보고서 형식을 보여주는 샘플**입니다. 문서 추출값과 예시 금융일정, 테스트용 상품정보를 조합했으며, 실제 PaddleOCR·E5 모델로 전체 상품 PDF를 검색한 결과를 의미하지 않습니다. 이미지를 클릭하면 크게 볼 수 있습니다.
+
+| 문서 요약과 금융일정 비교 | 상품정보와 원문 근거 표시 |
+| :---: | :---: |
+| [![보고서 1페이지: 무역서류 요약 및 금융일정 충돌 분류](docs/assets/report-preview-1.png)](docs/assets/report-preview-1.png) | [![보고서 2페이지: 금융상품 정보 및 출처 표시](docs/assets/report-preview-2.png)](docs/assets/report-preview-2.png) |
+
+<a id="features"></a>
+## 4. 주요 기능과 처리 흐름
+
+| 단계 | 역할 | 다음 단계 또는 보고서에 전달하는 정보 |
+| :--- | :--- | :--- |
+| **Document Agent** | PDF에서 문서 종류를 구분하고 핵심 필드 추출 | 날짜·금액·통화, 문서번호, 페이지와 추출 근거 |
+| **Financial Conflict Agent** | 예상 대금 유입일과 금융일정을 규칙으로 비교 | 충돌 유형, 상태, 일정 차이, 판단 이유 |
+| **Product Advisor Agent** | 충돌 유형에 관련된 금융상품 문서 검색 | 상품명, 검토 이유, PDF 파일명·페이지·발췌문 |
+| **Report Generator** | 앞 단계의 구조화된 결과를 PDF로 배치 | 담당자가 확인할 수 있는 분석 보고서 |
+
+Report Generator는 별도 판단을 수행하는 Agent가 아니라 보고서 생성 모듈입니다.
+
+### 다루는 금융일정은 세 가지
+
+| 분류 | 확인하는 질문 |
+| :--- | :--- |
+| 운전자금 대출 만기 | 거래 대금이 들어오기 전에 대출 상환일이 도래하는가? |
+| 선물환 만기 | 외화 대금 유입보다 약정한 외환 결제일이 빠른가? |
+| 공급자 지급 | 거래 대금이 들어오기 전에 공급자에게 지급해야 하는가? |
+
+결과는 **충돌 / 확인 필요 / 충돌 없음**으로 표시합니다. 예상 유입일이 없거나 충돌 가능 일정의 거래 연결이 미확정이면 확인을 요청합니다. 동일 날짜도 당일 입금 순서를 알 수 없어 보수적으로 충돌 대상에 포함합니다.
+
+<details>
+<summary><strong>문서별 추출 필드 보기</strong></summary>
+
+| 문서 | 핵심 필드 |
+| :--- | :--- |
+| Booking · 선적예약서 | 예약번호, 출항 예정일 |
+| Commercial Invoice · 상업송장 | 송장번호, 발행일, 총금액, 통화 |
+| Bill of Lading · 선하증권 | B/L 번호, 본선 적재일 |
+
+추출값에는 페이지, 좌표, 인식 신뢰도, 원문 라벨과 값을 함께 보존합니다. 텍스트 레이어를 이용한 대체 추출의 좌표는 읽기 순서로 만든 가상 좌표이며, 실제 OCR 좌표와 구분합니다.
+
+</details>
+
+<a id="architecture"></a>
+## 5. 시스템 구조와 기술 선택
+
+```mermaid
+flowchart TD
+    PDF["무역서류 PDF"] --> DOC["Document Agent<br/>핵심 정보 추출"]
+    DOC --> FIN["Financial Conflict Agent<br/>일정 충돌 분류"]
+    INPUT["별도 입력<br/>예상 대금 유입일 · 금융일정"] --> FIN
+    FIN --> ADV["Product Advisor Agent<br/>충돌 유형별 상품 근거 검색"]
+    BANK["금융상품 PDF<br/>페이지 추출 · 분할 · 임베딩"] --> DB[("ChromaDB")]
+    DB --> ADV
+    ADV --> REPORT["Report Generator<br/>문서 요약 · 충돌 결과 · 상품 근거"]
+    DOC -. "문서 추출 결과" .-> REPORT
+
+    classDef agent fill:#eef4ff,stroke:#3565a8,color:#173252
+    classDef output fill:#eaf7f1,stroke:#39836a,color:#183e30
+    class DOC,FIN,ADV agent
+    class REPORT output
 ```
 
-Planning Agent는 전체 목표를 2~12개의 독립 작업으로 나누고, Supervisor Agent는 현재 작업 하나만 라우팅합니다. 전문 Agent의 결과는 항상 Supervisor를 거쳐 Planning으로 돌아가므로 남은 계획, Tool 결과, Human 응답을 같은 상태에서 재확인할 수 있습니다.
+금융상품 색인은 분석 요청 전에 생성합니다. 분석 시에는 저장된 색인을 조회하며, LangGraph가 세 Agent와 보고서 생성 모듈의 실행 순서를 관리합니다.
 
-거래 작업 큐는 Chat이 호출하는 내부 structured-trade 경계로 유지됩니다. 별도
-`daily_monitoring` graph, 자동 실행 service, 호환 실행 Tool은 제거되었습니다.
-사용자는 Chat의 1~4번 메뉴에서 모든 흐름을 시작하며, 2번 메뉴는 금융일정 후보를
-선택한 다음 각 거래의 Shipment와 Financial Agent를 호출하고 Critic 검사 후
-`MonitoringRun`, 중복 방지 `Alert`, 금일 내부 PDF를 저장합니다.
+| 기술 | 사용 목적 | 구현 위치 |
+| :--- | :--- | :--- |
+| **PaddleOCR / pypdf** | PDF 원문에서 텍스트와 문서 정보 읽기 | [OCR 처리](app/services/ingestion/ocr_backend.py) |
+| **LangGraph** | 정해진 순서로 실행하고 단계별 결과 전달 | [워크플로 정의](app/graphs/compiled.py) |
+| **ChromaDB / multilingual-e5** | 충돌 상황과 관련된 문서 조각을 저장·검색 | [상품 검색 저장소](app/services/product_vector_store.py) |
+| **Pydantic / FastAPI** | 입력·출력 구조를 정의하고 분석 API 제공 | [데이터 구조](app/schemas/portfolio.py) · [API](app/api/main.py) |
+| **ReportLab** | 분석 결과를 PDF로 구성 | [보고서 생성](app/services/report_generator.py) |
 
-## 여덟 전문 Agent
+현재 Agent는 역할별 처리 모듈을 연결한 **고정 순서 워크플로**입니다. 금융일정은 규칙으로 계산하고 상품정보는 검색한 원문을 발췌합니다. 자유서술 답변을 생성하는 LLM 호출은 포함하지 않습니다.
 
-| Agent | 책임 | 소유 Tool |
-| --- | --- | --- |
-| `document_intelligence` | 업로드 문서 분류·필드 추출·Core 검증, 원문 근거와 중간 분석 봉투 저장 | `stage_document_intelligence` |
-| `trade_case_manager` | Booking·Invoice·B/L 거래 매칭, 완전성 판정, 수기 확인값과 거래 상태 반영 | `bundle_trade_cases`, `apply_document_field_override`, `commit_trade_cases` |
-| `financial_calendar` | 고객 금융일정 XLSX 검증·반영, 회사·거래·이벤트 연결, 모니터링 후보 선택, 충돌 후 명시적 연결 상세 보완 | `validate_financial_calendar`, `import_financial_calendar`, `select_financial_monitoring_candidates`, `update_financial_event_link_details` |
-| `shipment_timeline` (Shipment State/Timeline Agent) | Booking 계획과 B/L 실제 상태 분리, 현재 선적 상태 조회, 사용자 지연 제보 기록 | `read_shipment_snapshot`, `record_shipment_delay_scenarios` |
-| `financial_exposure` | PaymentTerms Gate, 예상 회수일, 금융일정 충돌, 우선순위와 계산 결과 저장 | `inspect_payment_gate`, `calculate_financial_exposure`, `run_proactive_risk_scan`, `get_financial_risk_snapshot` |
-| `product_advisor` | 금융위험·거래 문맥과 상품 후보 매칭, hard filter, KB 상품 PDF 페이지 근거 검색 및 근거 있는 선택지 구성 | `match_product_scenario`, `retrieve_product_evidence`, `search_product_knowledge` |
-| `report_writer` | 수동 모니터링 결과 봉인, 하나의 동결된 근거로 고객용·KB 직원용 PDF 생성 | `finalize_manual_monitoring`, `build_briefing_payload`, `render_customer_report`, `render_rm_report` |
-| `critic` | 실행 순서, Tool 근거, 숫자 출처, 안전 규칙과 최종 결과 독립 검증 | `review_workflow_evidence` |
+<a id="implementation"></a>
+## 6. 설계하고 구현한 부분
 
-Document Intelligence는 실행 시 `stage_document_intelligence` 내부에서
-검증된 `field_registry()`를 직접 조회한다. 필드 계약 목록·개수 점검은
-내부 `inspect_field_contract_diagnostic` 함수로 유지되며 Agent Tool로
-노출하지 않는다.
+### 업무를 세 역할로 나누고 연결
 
-Tool 소유권은 [`app/agents/supervisor.py`](app/agents/supervisor.py)의 allow-list로 강제됩니다. Supervisor가 다른 Agent를 선택하더라도 실제 실행은 해당 Tool의 정식 소유 Agent로 교정됩니다.
+각 Agent의 입력과 출력을 정의하고, 한 번의 분석 요청에서 문서 확인부터 보고서 생성까지 이어지도록 연결했습니다. 문서 분석 결과는 보고서에 보존하고, 금융일정 비교 결과의 충돌 코드는 상품 검색 조건으로 사용합니다.
 
-## 세 가지 최종 심사 시연
+→ [전체 처리 연결 코드](app/services/portfolio_pipeline.py)
 
-최종 자료는 [`data/judge_demo_final`](data/judge_demo_final)에 데모별로 분리합니다.
-세 시연은 모두 공개 `chat` 그래프와 같은 Agent Server Thread를 사용하므로,
-왼쪽 Streamlit 입력과 오른쪽 Studio의 Planning → Supervisor → Agent → Tool 실행을
-하나의 기록으로 보여줄 수 있습니다.
+### 날짜 판단의 기준을 명시
 
-### Demo 0. 완전한 3문서 분류·거래 매칭
+`예상 대금 유입일 - 금융일정일`로 차이를 계산합니다. 날짜가 부족하면 확인 필요 상태를 반환하고, 거래와 연결되지 않은 일정은 충돌 대상에서 제외합니다. 이 기준을 코드와 테스트에서 함께 확인할 수 있습니다.
 
-메뉴 3에서 Booking·Commercial Invoice·B/L 각 1개를 한 번에 올립니다. Document
-Intelligence가 세 문서의 종류와 Core 필드를 확인하고, Trade Case Manager가 공통
-거래 참조로 `TXN-DEMO0`을 묶고 `CASE-DEMO0`을 구성해
-Company·TradeCase·Shipment·DocumentFact·
-PaymentObligation에 반영합니다. 세 문서가 완전하므로 Human interrupt 없이 종료하고,
-Chat은 분류 3건·거래 1건·DB 반영 1건을 요약한 뒤 금융일정 등록을 다음 선택지로
-제시합니다.
+→ [금융일정 분류 규칙](app/services/financial_conflict.py)
 
-### Demo 1. B/L 미수령 거래의 금일 선제 위험 분석
+### 여러 페이지에서 상품 근거를 검색
 
-`DEMO1-CO`에는 Booking·Invoice와 금융 이벤트가 이미 등록되어 있고 B/L만 아직
-없습니다. 메뉴 2를 누르면 Financial Calendar가 이 거래를 후보로 선정하고,
-Shipment State/Timeline → Financial Exposure → Critic → Report Writer 순으로
-안전 기준일을 넘긴 위험을 탐지합니다. 사용자가 `충돌 종합보고서 생성`을 선택하고
-보고서 생성에 동의하면 Product Advisor가 KB 상품 원문 페이지 근거를 검색하고,
-동일한 계산 기준으로 고객용·RM용 PDF를 저장합니다.
+금융상품 PDF를 **페이지별 텍스트 → 문서 조각 → 임베딩 → ChromaDB** 순서로 색인합니다. 각 조각에 충돌 코드·상품명·파일명·페이지·원본 해시를 저장해 검색 결과의 출처를 따라갈 수 있게 했습니다.
 
-### Demo 2. 사전 통보된 9일 선적 지연 영향 분석
+기본 색인 대상은 **7개 상품, 총 38페이지**입니다. 카탈로그는 상품과 충돌 유형의 연결을 정의하고, 검색할 내용은 PDF에서 가져옵니다. 상품정보는 가입 가능 여부를 확정하는 추천이 아니라 담당자가 검토할 자료로 제공합니다.
 
-`CASE-DEMO2`의 선적이 9일 늦어진다는 제보를 입력합니다. Shipment
-State/Timeline은 실제 선적 사실을 덮어쓰지 않고 조건부 지연 시나리오만 저장합니다.
-PaymentTerms의 B/L 기준은 Human에게 본선적재일 적용 여부를 확인하고, 충돌 계산 후
-거래 대금 의존 범위는 `FULL`/`PARTIAL`로 확인합니다. `PARTIAL`일 때만 금액·통화를
-추가 질문합니다. Critic 검증, 상품 근거 검색, 고객용·RM용 보고서 저장 후 UI는
-`상담사 연결`/`나중에`를 제시하며 실제 외부 연결은 수행하지 않습니다.
+→ [상품 카탈로그](data/knowledge/product_catalog.json) · [색인 생성 코드](scripts/build_product_vector_index.py) · [상품정보 반환 코드](app/agents/product_advisor_agent.py)
 
-두 보고서는 같은 risk snapshot, 상품 근거, 기준일과 basis version을 사용합니다. 고객용에는 내부 우선순위·직원 메모가 제외되고, KB 직원용에는 상담 준비와 감사 정보를 추가합니다.
+<a id="validation"></a>
+## 7. 구현 결과와 검증 범위
 
-## 실제 입력 자산
+문서 분석·금융일정 분류·상품 검색·보고서 생성을 하나의 요청으로 연결했습니다. 업무시간 절감률이나 현업 도입 효과는 아직 측정하지 않았습니다.
 
-### 문서·PaymentTerms 계약
+**2026-08-28 구현 검증 기록:** 테스트 23개 통과, Ruff 검사 통과, mypy 검사 통과. 아래 표는 어떤 방식으로 동작을 확인했는지 구분한 내용입니다.
 
-- [98개 문서 필드 원본](<kb_doc/BL, Booking, Invoice _필드정리.xlsx>)
-- [실행용 문서 필드 계약](data/domain_inputs/active/document_field_dictionary.xlsx)
-- [PaymentTerms 검토 원본](kb_doc/PaymentTerms_최종.xlsx)
-- [실행용 PaymentTerms 계약](data/domain_inputs/active/payment_terms_cases.xlsx)
-- [Booking 원본 양식](kb_doc/booking.pdf)
-- [Commercial Invoice 원본 양식](<kb_doc/상업송장(Commercial Invoice).pdf>)
-- [Bill of Lading 원본 양식](<kb_doc/선하증권(Bill of Lading).pdf>)
-- [최종 Demo 0·1·2 자료와 manifest](data/judge_demo_final/README.md)
+| 검증 대상 | 확인한 범위 |
+| :--- | :--- |
+| 실제 무역서류 3종 | PDF 텍스트 레이어로 핵심 8개 필드 추출 확인 |
+| 금융일정 분류 | 날짜 차이, 동일일, 유입일 누락, 거래 연결 상태 테스트 |
+| 실제 ChromaDB | 테스트용 임베딩으로 영속 저장·재접속·시나리오 필터 검색 확인 |
+| 상품 PDF 색인 코드 | 테스트용 OCR·임베딩으로 페이지 분할, 출처 보존, 해시 변경 감지 확인 |
+| API·워크플로·보고서 | 입력·출력 계약, 4개 노드 실행 순서, PDF 생성 확인 |
+| 실제 모델 기반 전체 처리 | PaddleOCR·E5로 상품 PDF 전체를 처리하는 실행은 미검증 |
 
-### 금융일정·우선순위·브리핑
+검증 코드는 [tests/](tests/)에서 확인할 수 있습니다. 이미지 문서의 OCR 품질과 실제 상품 검색의 적합성은 모델을 실행한 별도 평가가 필요합니다.
 
-- [고객 금융일정과 충돌 시나리오](kb_doc/화주ABC_금융일정_충돌시나리오.xlsx)
-- [금융일정 우선순위 규칙](kb_doc/금융일정_우선순위_로직.xlsx)
-- [고객용·KB 직원용 브리핑 구성](kb_doc/KB_TradeFlow_Twin_브리핑_구성안.xlsx)
-- [데이터 스키마 설명](kb_doc/KB_TradeFlow_Twin_개발자전달용_데이터스키마.md)
+<a id="quickstart"></a>
+## 8. 실행 방법과 코드 안내
 
-### KB 상품 근거
+**Python 3.12 · uv**를 사용합니다. 아래 명령은 프로젝트 최상위 폴더에서 실행합니다.
 
-- [상황-상품 매칭 분석](kb_doc/KB_금융상품_시나리오_매칭_분석.pdf)
-- [구조화 상품 catalog](data/knowledge/product_catalog.json)
-- [페이지 단위 OCR index](data/knowledge/product_ocr_index.json)
-- [KB 상품 원문 PDF 디렉터리](<kb_doc/KB 금융상품 pdf>)
-
-OCR index는 각 원문 PDF의 SHA-256과 페이지 번호를 보존합니다. 원문 해시가 달라지면 retrieval이 실패하도록 구성해 오래된 근거가 조용히 사용되지 않게 합니다.
-
-## 실행 준비
-
-Python 3.12와 `uv`가 필요합니다.
+### 설치와 상품 색인 준비
 
 ```bash
-cd /Users/chogyeongtae/Desktop/kb_agent
-cp .env.example .env
-./scripts/bootstrap.sh
+# 개발 도구와 OCR 의존성 설치
+uv sync --extra dev --extra ocr
+
+# 대상 PDF와 페이지 수 확인: 7개 상품, 38페이지
+uv run python scripts/build_product_vector_index.py --dry-run
+
+# OCR·임베딩 모델을 사용해 실제 ChromaDB 색인 생성
+uv run python scripts/build_product_vector_index.py
 ```
 
-기존 `.env`가 있으면 덮어쓰지 않습니다. live 실행에는 다음 값이 필요합니다.
+기본 상품 PDF 38페이지는 이미지 기반이므로 OCR이 필요합니다. 최초 색인 생성 시 모델 다운로드와 처리 시간이 발생하며, 색인은 `data/knowledge/chroma_products/`에 저장됩니다.
 
-```dotenv
-TRADEFLOW_MODE=live
-OPENAI_API_KEY=...
-LANGSMITH_API_KEY=...
-LANGSMITH_TRACING=true
-LANGSMITH_PROJECT=kb-tradeflow-twin-live
-```
-
-macOS Desktop 동기화로 가상환경 파일이 비워지는 환경에서는 Desktop 밖의 경로를 지정합니다.
+### 분석 API 실행
 
 ```bash
-export TRADEFLOW_VENV_PATH="/absolute/non-icloud/path/kb-tradeflow-venv"
-./scripts/bootstrap.sh
+bash scripts/start_api.sh
 ```
 
-## 실행 순서
+실행 후 `http://127.0.0.1:8000/docs`에서 `POST /api/portfolio/analyze`를 호출할 수 있습니다. API 응답에는 문서 추출값, 충돌 결과, 상품 근거와 생성된 보고서 경로가 포함됩니다. 보고서는 기본적으로 `output/pdf/`에 저장됩니다.
 
-### 1. 최종 Demo 0·1·2 자료 생성·DB 사전 준비
+<details>
+<summary><strong>API 요청 예시</strong></summary>
 
-```bash
-python scripts/generate_final_demo_portfolio.py
-python scripts/prepare_final_demo_portfolio.py --demo all
-```
-
-첫 명령은 Demo 0의 완전한 3문서와 Demo 1·2의 Booking·Invoice, 금융일정 seed,
-manifest를 생성합니다. 두 번째 명령은 같은 도메인 Service를 사용해 각 demo batch를
-분석·거래화하고 금융일정을 DB에 반영합니다. 두 명령 모두 모델 API를 호출하지
-않습니다.
-
-### 2. 전체 데모 한 번에 실행
-
-LangGraph Dev가 준비된 뒤 FastAPI와 Streamlit을 순서대로 시작하려면:
-
-```bash
-./scripts/start_all_demo.sh
-```
-
-저비용 Live 연습 프로필로 세 서비스를 함께 시작하려면:
-
-```bash
-./scripts/start_practice.sh all
-```
-
-### 3. 개별 실행
-
-먼저 LangGraph Dev를 실행합니다.
-
-```bash
-./scripts/start_langgraph_dev.sh
-```
-
-준비가 완료된 뒤 다른 터미널에서 FastAPI와 Streamlit을 실행합니다.
-
-한 터미널에서 함께 실행하려면:
-
-```bash
-./scripts/start_demo.sh
-```
-
-각각 실행하려면:
-
-```bash
-./scripts/start_api.sh
-./scripts/start_ui.sh
-```
-
-- Streamlit: `http://127.0.0.1:8501`
-- FastAPI: `http://127.0.0.1:8000`
-- OpenAPI: `http://127.0.0.1:8000/docs`
-
-Streamlit에서 `Demo 0`, `Demo 1`, `Demo 2` 중 하나를 선택하면 해당 demo의
-고정 회사·batch·case 문맥이 같은 Agent Server Thread에 설정됩니다. Demo 0은 세
-PDF를 업로드해 분류·거래 매칭을 보여주고, Demo 1·2는 사전 준비된 거래와 금융일정을
-사용해 각각 금일 위험 분석과 사용자 제보 지연 분석을 진행합니다.
-
-### 4. LangGraph Studio 연결
-
-```bash
-./scripts/start_langgraph_dev.sh
-```
-
-- Local LangGraph API: `http://127.0.0.1:2024`
-- API 문서: `http://127.0.0.1:2024/docs`
-- Studio: `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`
-
-Studio에는 공개 그래프 `chat` 하나만 노출됩니다. `chat`을 선택하면 Planning,
-Supervisor, 선택된 Agent, Tool 호출, Human interrupt, 최종 응답을 한 실행 기록에서
-확인할 수 있습니다. 거래 실행과 금일 수동 모니터링도 모두 이 Chat 그래프에서
-시작합니다. 모니터링 전용 standalone graph나 별도 실행 endpoint는 없습니다.
-
-Streamlit Chat을 열면 `:2024` Agent Server에 실제 Thread가 생성되고 전체 Thread ID가
-화면에 표시됩니다. 이 ID를 복사해 Studio에서 같은 Thread를 선택하면, 왼쪽
-Streamlit에서 보낸 질문의 Planning → Supervisor → Agent 실행을 오른쪽 Studio에서
-같은 실행으로 확인할 수 있습니다. `새 대화`는 새 Agent Server Thread를 만듭니다.
-
-### 연습용 저비용 Live 프로필
-
-데모용 `.env`는 변경하지 않습니다. 연습할 때만
-[`config/practice.env`](config/practice.env)의 혼합 모델 프로필을 적용합니다.
-
-- Planning·Supervisor·Financial·Critic: `gpt-5.6-terra`
-- Document·Shipment·Product·Report Writer: `gpt-5.6-luna`
-- reasoning effort: `low`
-
-LangGraph Dev 연습:
-
-```bash
-./scripts/start_practice.sh langgraph
-```
-
-Streamlit과 FastAPI 연습:
-
-```bash
-./scripts/start_practice.sh chat
-```
-
-API와 UI를 별도 터미널에서 실행할 때:
-
-```bash
-./scripts/start_practice.sh api
-./scripts/start_practice.sh ui
-```
-
-연습 프로필에는 API 키가 들어 있지 않습니다. 키는 기존 `.env`에서 읽고,
-실행 프로세스의 모델 관련 환경변수만 임시로 덮어씁니다. 일반 실행 명령으로
-다시 시작하면 원래 데모 모델 설정이 그대로 적용됩니다.
-
-### Chat 시연 질문
-
-```text
-Demo 0) 3
-        업로드한 Booking·Invoice·B/L을 분류하고 같은 거래로 묶어 등록해줘.
-
-Demo 1) 2
-        2026-08-20 기준 금일 금융위험 거래를 우선순위 순으로 분석해줘.
-
-Demo 2) CASE-DEMO2 거래의 선적이 9일 늦어질 예정입니다.
-        금융일정 충돌과 위험순위를 분석해줘.
-```
-
-## Human interrupt와 resume
-
-확인이 필요하면 `chat` API는 다음 구조를 반환합니다.
+무역서류 경로는 API 서버가 읽을 수 있는 로컬 PDF 경로입니다.
 
 ```json
 {
-  "status": "HUMAN_REQUIRED",
-  "thread_id": "trade-live-001",
-  "confirmation_id": "CONF-...",
-  "issue": {
-    "issue_code": "REPORT_GENERATION_CONSENT",
-    "prompt": "동일한 근거로 고객용·RM용 보고서를 생성할까요?",
-    "response_key": "report_consent",
-    "value_type": "boolean",
-    "allowed_values": [true, false]
-  }
+  "document_paths": [
+    "kb_doc/booking.pdf",
+    "kb_doc/상업송장(Commercial Invoice).pdf",
+    "kb_doc/선하증권(Bill of Lading).pdf"
+  ],
+  "expected_receipt_date": "2026-09-20",
+  "financial_events": [
+    {
+      "event_id": "LOAN-001",
+      "scenario_code": "WORKING_CAPITAL_LOAN_MATURITY",
+      "event_name": "운전자금 대출 만기",
+      "event_date": "2026-09-15",
+      "amount": 50000,
+      "currency": "USD",
+      "link_status": "CONFIRMED"
+    }
+  ]
 }
 ```
 
-응답할 때는 interrupt가 준 `issue_code`를 그대로 돌려보내야 합니다.
+예시 일정은 문서 형식 확인용 PDF와 조합한 가상 입력이며 실제 거래를 나타내지 않습니다.
+
+</details>
+
+<details>
+<summary><strong>LangGraph 개발 서버와 테스트</strong></summary>
+
+LangGraph 개발 서버는 `langgraph.json`에 정의된 `portfolio` 그래프 하나를 공개합니다. 이 설정은 `.env` 파일을 읽으므로 실행 전에 예시 파일을 복사합니다.
 
 ```bash
-curl -X POST \
-  "http://127.0.0.1:8000/api/threads/trade-live-001/resume" \
-  -H "Content-Type: application/json" \
-  -d '{"issue_code":"REPORT_GENERATION_CONSENT","value":true}'
+cp -n .env.example .env
+bash scripts/start_langgraph_dev.sh
 ```
 
-필드 확인은 문자열, 지연 일수 목록은 정수 배열로 전달합니다.
+검증 명령:
 
-```json
-{"issue_code": "DELAY_DAYS_REQUIRED", "value": [9]}
+```bash
+uv run pytest -q
+uv run ruff check app tests scripts
+uv run mypy app
 ```
 
-Studio의 Interrupts 화면에서도 동일한 `issue_code`와 `value` JSON으로 재개합니다. 질문, 응답, 실행 thread는 `Confirmation` 감사 기록에 남습니다.
+</details>
 
-## 안전 원칙
-
-- **문서 누락과 필드 누락은 다릅니다.** B/L 문서 자체가 없으면 `AWAITING_DOCUMENT`이며, 존재하지 않는 문서의 필드값을 수기로 묻지 않습니다. 문서가 있고 필수 필드 하나만 비어 있을 때만 정확한 필드를 질문합니다.
-- **B/L 부재는 미출항 증거가 아닙니다.** B/L 번호나 실제 선적 근거가 없으면 상태를 `UNKNOWN`으로 표시하며 미선적·미출항으로 단정하지 않습니다.
-- **모델이 금융 계산을 하지 않습니다.** PaymentTerms 해석 결과, 기준일, tenor, 금융 이벤트와 우선순위 XLSX를 검증된 Tool이 읽고 날짜·금액·충돌을 계산합니다.
-- **Payment Gate를 통과하기 전 계산하지 않습니다.** 검증되지 않은 기준일이나 지원하지 않는 결제조건은 계산을 차단하고 필요한 정확한 값만 질문합니다.
-- **원본과 가상 시나리오를 분리합니다.** 지연 분석과 지연 시나리오는 별도 `CalculationResult`로 저장하며 문서 원문과 실제 Shipment 상태를 변경하지 않습니다.
-- **Tool이 DB 변경을 소유합니다.** Planning, Supervisor와 모델은 직접 DB commit을 수행하지 않습니다.
-- **상품은 원문 페이지 근거가 있어야 제시합니다.** hard filter를 통과하고 해시 검증된 PDF citation이 있는 상품만 옵션으로 구성합니다.
-- **두 보고서는 동일한 근거를 사용합니다.** 한 번 동결한 risk snapshot과 상품 근거로 고객용·KB 직원용 보고서를 함께 만들며 명시적 동의가 있어야 생성합니다. RM 연락은 UI 제안만 하고 외부 전송은 수행하지 않습니다.
-- **비밀값과 내부 추론은 노출하지 않습니다.** Debug Trace에는 공개 가능한 Node, Agent, Tool, 입력·출력 요약, call ID와 실행시간만 남깁니다.
-
-## 출력 보고서
-
-동의가 완료되면 다음 파일이 생성됩니다.
+### 핵심 코드 위치
 
 ```text
-data/reports/{case_id}_customer.pdf
-data/reports/{case_id}_rm.pdf
+app/
+├── agents/          # 문서 분석 · 금융충돌 · 상품정보 Agent
+├── services/        # OCR, 날짜 비교, 검색, PDF 생성
+├── graphs/          # 실행 순서와 공유 상태
+├── schemas/         # 입력·출력 데이터 구조
+└── api/             # 분석 API
+data/knowledge/      # 상품 카탈로그와 생성된 검색 색인
+kb_doc/              # 무역서류 및 금융상품 PDF
+scripts/             # 색인 생성과 서버 실행
+tests/               # 단위·통합·API·구조 검증
+docs/assets/         # README 보고서 미리보기
 ```
 
-- 고객용: 거래 개요, 선적 확인사항, 금융 위험, 고객이 수행할 다음 단계, 조건부 상품 정보
-- KB 직원용: 고객용과 동일한 basis에 내부 우선순위, 근거 ID, 확인 질문, 상담 준비·인계 정보를 추가
+<a id="limitations"></a>
+## 9. 현재 한계와 개선 방향
 
-Streamlit Chat과 Case Reports 화면에서 두 PDF를 내려받을 수 있습니다.
+- **거래 조건 입력:** 예상 대금 유입일과 금융일정은 별도 입력값입니다. 서류에서 결제 조건을 해석해 유입일을 계산하는 기능은 현재 범위에 포함되지 않습니다.
+- **판단 범위:** 날짜상 일정 충돌을 찾습니다. 잔액·신용한도·환율까지 반영한 실제 자금 부족이나 상품 적격성 판단은 수행하지 않습니다.
+- **모델 품질:** 다양한 서류 양식의 OCR 추출 정확도와 실제 임베딩 검색 품질은 추가 검증이 필요합니다.
+- **다음 개선:** 실제 모델 기반 검색을 평가하고, 필드별 추출 정확도와 충돌 유형별 검색 적합성을 기록할 계획입니다.
 
-## 검증 명령
+---
 
-최종 숫자를 README에 고정하지 않고 아래 명령의 현재 결과를 기준으로 판단합니다.
-
-```bash
-python scripts/generate_final_demo_portfolio.py
-python scripts/prepare_final_demo_portfolio.py --demo all
-python scripts/verify_integrations.py
-
-ruff check .
-ruff format --check .
-mypy app scripts
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
-```
-
-## 주요 파일
-
-- [LangGraph 진입점 설정](langgraph.json)
-- [공통 Planning-Supervisor 제어](app/graphs/common_control.py)
-- [공개 Chat과 내부 structured-trade graph 조립](app/graphs/compiled.py)
-- [공통 상태](app/graphs/state.py)
-- [요청 기반 계획 생성](app/services/workflow_planning.py)
-- [구현 Phase 기록](IMPLEMENTATION_PHASE_LOG.md)
-- [원천 파일 manifest](data/source_manifest.json)
-- [최종 Demo 0·1·2 자료 안내](data/judge_demo_final/README.md)
-- [최종 Demo manifest](data/judge_demo_final/manifest.json)
-- [최종 시나리오 가이드 PDF](output/pdf/KB_TradeFlow_Twin_Demo_0_1_2_시나리오_가이드.pdf)
+<sub>공모전 아이디어를 바탕으로 개발한 개인 학습·구현 프로젝트입니다. 금융상품 정보는 검토 참고용이며, 금융기관의 공식 서비스나 대출 승인 결과를 의미하지 않습니다.</sub>

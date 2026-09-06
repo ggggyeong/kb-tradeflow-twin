@@ -1,7 +1,7 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "chat": "./app/graphs/compiled.py:root_conversation_graph"
+    "portfolio": "./app/graphs/compiled.py:portfolio_graph"
   },
   "env": ".env"
 }
