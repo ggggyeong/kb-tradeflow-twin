@@ -17,6 +17,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     HRFlowable,
+    KeepTogether,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -230,8 +231,8 @@ class PortfolioReportGenerator:
         story: list[Any] = [
             Paragraph("무역금융 AI Agent 분석 보고서", styles["title"]),
             Paragraph(
-                "Document Agent → Financial Conflict Agent → Product Advisor Agent의 "
-                "검증된 결과를 Report Generator가 그대로 구성했습니다.",
+                "Supervisor가 연결한 Document·Finance Agent의 검토 결과입니다. "
+                "날짜 비교는 규칙으로 수행하고 금융 설명에는 검색한 PDF 근거를 붙였습니다.",
                 styles["subtitle"],
             ),
             HRFlowable(width="100%", thickness=1.2, color=BLUE, spaceAfter=4 * mm),
@@ -240,10 +241,10 @@ class PortfolioReportGenerator:
 
         document_rows: list[list[Any]] = [["문서", "유형", "핵심 추출값", "검토사항"]]
         for document_item in frozen.documents:
-            compact_fields = ", ".join(
-                f"{key}={value}"
-                for key, value in list(document_item.fields.items())[:8]
-            ) or "-"
+            compact_fields = (
+                ", ".join(f"{key}={value}" for key, value in list(document_item.fields.items())[:8])
+                or "-"
+            )
             document_rows.append(
                 [
                     document_item.file_name,
@@ -278,20 +279,22 @@ class PortfolioReportGenerator:
         conflict_rows: list[list[Any]] = [
             ["시나리오", "상태", "금융일", "예상 유입일", "차이", "이유"]
         ]
+        if frozen.receipt_resolution:
+            story.append(
+                Paragraph(
+                    _safe("대금 유입일 근거: " + frozen.receipt_resolution.basis), styles["body"]
+                )
+            )
         for conflict_item in frozen.conflicts:
             conflict_rows.append(
                 [
                     _scenario_label(conflict_item.scenario_code),
                     _status_label(conflict_item.status),
-                    conflict_item.event_date.isoformat(),
+                    conflict_item.event_date.isoformat() if conflict_item.event_date else "미확정",
                     conflict_item.expected_receipt_date.isoformat()
                     if conflict_item.expected_receipt_date
                     else "미확정",
-                    (
-                        f"{conflict_item.gap_days}일"
-                        if conflict_item.gap_days is not None
-                        else "-"
-                    ),
+                    (f"{conflict_item.gap_days}일" if conflict_item.gap_days is not None else "-"),
                     conflict_item.reason,
                 ]
             )
@@ -303,11 +306,41 @@ class PortfolioReportGenerator:
             )
         )
 
-        story.extend([PageBreak(), Paragraph("3. 검토 가능한 금융상품", styles["heading"])])
-        if not frozen.product_options:
+        story.extend([PageBreak(), Paragraph("3. 상황별 확인 정보·상담 준비", styles["heading"])])
+        if frozen.service_cards:
+            for card in frozen.service_cards:
+                card_start = len(story)
+                story.append(Paragraph(_safe(card.title), styles["heading"]))
+                story.append(Paragraph(_safe(card.situation), styles["body"]))
+                for option in card.information:
+                    story.append(Paragraph(_safe(option.product_name), styles["body"]))
+                    story.append(
+                        Paragraph(
+                            "검토 목적(서비스 정책): " + _safe(option.why_consider), styles["body"]
+                        )
+                    )
+                    story.append(
+                        Paragraph("확인한 원문: " + _safe(option.supporting_quote), styles["small"])
+                    )
+                    sources = "; ".join(f"{c.source_file} p.{c.page}" for c in option.citations)
+                    story.append(Paragraph(_safe(sources), styles["small"]))
+                if card.questions:
+                    story.append(
+                        Paragraph(
+                            "추가 확인 질문 · 아래 질문은 원문 인용이 아닌 서비스 체크리스트입니다.",
+                            styles["small"],
+                        )
+                    )
+                    for question in card.questions:
+                        story.append(Paragraph(_safe(question), styles["body"]))
+                for notice in card.notices:
+                    story.append(Paragraph(_safe(notice), styles["small"]))
+                story.append(Spacer(1, 3 * mm))
+                story[card_start:] = [KeepTogether(story[card_start:])]
+        elif not frozen.product_options:
             story.append(
                 Paragraph(
-                    "검색 점수와 출처 조건을 만족한 금융상품 근거가 없어 추천을 보류했습니다.",
+                    "제공할 상품 근거가 없습니다. 검색 생략·입력 확인 필요·검색 실패 여부는 아래 확인사항과 실행 기록을 확인해 주세요.",
                     styles["body"],
                 )
             )
@@ -321,8 +354,15 @@ class PortfolioReportGenerator:
                 product_rows.append(
                     [
                         _scenario_label(option.scenario_code),
-                        option.product_name,
-                        option.why_consider,
+                        option.product_name
+                        + (
+                            f"\n{option.financial_institution}"
+                            if option.financial_institution
+                            else ""
+                        ),
+                        option.why_consider
+                        + "\n확인할 조건: "
+                        + "; ".join(option.conditions_to_check),
                         Paragraph(citation_text, styles["cell"]),
                     ]
                 )
@@ -337,6 +377,7 @@ class PortfolioReportGenerator:
         story.extend(
             [
                 Paragraph("4. 출처와 확인사항", styles["heading"]),
+                *[Paragraph(_safe(warning), styles["body"]) for warning in frozen.warnings],
                 Paragraph(_safe(frozen.source_notice), styles["body"]),
                 Spacer(1, 3 * mm),
                 Paragraph(
@@ -348,6 +389,35 @@ class PortfolioReportGenerator:
                 ),
             ]
         )
+        if any(item.evidence for item in frozen.documents):
+            story.append(Paragraph("5. 문서 추출 근거", styles["heading"]))
+            for item in frozen.documents:
+                for evidence in item.evidence:
+                    story.append(
+                        Paragraph(
+                            _safe(
+                                f"{item.file_name} p.{evidence.get('page', '-')} · {evidence.get('field', '-')} · "
+                                f"원문: {evidence.get('raw_value', '-')}"
+                            ),
+                            styles["small"],
+                        )
+                    )
+        if frozen.product_options and not frozen.service_cards:
+            story.append(Paragraph("6. 금융자료 발췌 원문", styles["heading"]))
+            seen: set[tuple[str, int, str]] = set()
+            for option in frozen.product_options:
+                for citation in option.citations:
+                    identity = (citation.source_file, citation.page, citation.excerpt)
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    story.append(
+                        Paragraph(
+                            _safe(f"{citation.source_file} p.{citation.page}"), styles["small"]
+                        )
+                    )
+                    story.append(Paragraph(_safe(citation.excerpt), styles["body"]))
+                    story.append(Spacer(1, 2 * mm))
         footer = partial(_footer, font=font)
         document.build(story, onFirstPage=footer, onLaterPages=footer)
         return {

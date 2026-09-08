@@ -1,6 +1,197 @@
 {
-  "schema_version": "kb-product-catalog-v2",
+  "schema_version": "kb-product-catalog-v3",
   "products": [
+    {
+      "product_id": "SHINHAN-WORKING-CAPITAL-GUIDE",
+      "canonical_name": "기업대출(운전자금) 검토 정보",
+      "bank_name": "신한은행",
+      "source_file": "shinhan_corporate_loan.pdf",
+      "source_url": "https://img.shinhan.com/sbank2016/form/20110131618000010051WF00001000000001.PDF?1768922540586=",
+      "source_date": "2026-01-14",
+      "reviewed_on": "2026-09-08",
+      "reviewed_sha256": "b2d4637e1c13bb70c64a20b58d74e6b437ebe996c09edff3fdbb09894c0bf295",
+      "review_status": "REVIEWED",
+      "enabled": true,
+      "selection_reason": "공식 기업대출 공통 설명서의 고객용 p.12-21. 운영자금 용도, 한도·심사, 상환 및 연체 유의사항을 확인하는 참고자료. 특정 대출 승인이나 기존 대출 상환용 이용을 보장하지 않음. 같은 내용의 은행용 p.1-10과 별도 동의서는 색인 제외.",
+      "scenario_codes": [
+        "WORKING_CAPITAL_LOAN_MATURITY",
+        "SUPPLIER_PAYMENT"
+      ],
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "include_pages": [
+        12,
+        17,
+        18,
+        19
+      ],
+      "sections": [
+        {
+          "section_id": "operating-purpose",
+          "topic": "FUNDING_PURPOSE",
+          "page": 12,
+          "start_anchor": "• 기업대출은 자금용도에 따라",
+          "end_anchor": "Q2. 모든 기업대출상품"
+        },
+        {
+          "section_id": "repayment",
+          "topic": "LOAN_REPAYMENT",
+          "page": 17,
+          "start_anchor": "■ 상환방법에 따른 상환금액·이자율·시기",
+          "end_anchor": "■ 상환방법별 원리금 부담액 예시"
+        },
+        {
+          "section_id": "overdue",
+          "topic": "LOAN_OVERDUE",
+          "page": 18,
+          "start_anchor": "❷ 「원금을 상환하기로 약정한 날」",
+          "end_anchor": "❸ 「분할상환금"
+        },
+        {
+          "section_id": "extension",
+          "topic": "LOAN_EXTENSION",
+          "page": 18,
+          "start_anchor": "9 계약기간 및 연장사항",
+          "end_anchor": "준법감시인 사전심사필"
+        },
+        {
+          "section_id": "borrower",
+          "topic": "FUNDING_ELIGIBILITY",
+          "page": 19,
+          "start_anchor": "■ 기업대출의 거래 상대방",
+          "end_anchor": "■ 기업대출의 연대보증인"
+        }
+      ]
+    },
+    {
+      "product_id": "HSBC-EXPORT-RECEIVABLE-GUIDE",
+      "canonical_name": "수출환어음 매입 비용 확인 정보",
+      "bank_name": "HSBC은행 서울지점",
+      "source_file": "hsbc_trade_finance.pdf",
+      "source_url": "https://www.hsbc.co.kr/-/media/korea/attachments/korea-kr/cmb-agreement/biz_agreement_029_kr.pdf",
+      "source_date": "2024-02-23",
+      "reviewed_on": "2026-09-08",
+      "reviewed_sha256": "8d90047ff0ac6028ef7d236ea9e99b7931ae0776e6e3c9479b7caa4406e2653c",
+      "review_status": "REVIEWED",
+      "enabled": true,
+      "selection_reason": "수출채권이 확인된 공급자 지급 일정에서 수출환어음 매입의 환가료 설명만 제공. 비용의 참고 정보이며 매입 선결 조건·환매 의무는 별도 수출채권 약정서에서 확인. 수입금융·보증·금리 지표 본문 제외.",
+      "scenario_codes": [
+        "SUPPLIER_PAYMENT"
+      ],
+      "trade_directions": [
+        "EXPORT"
+      ],
+      "requires_export_receivable": true,
+      "include_pages": [
+        1
+      ],
+      "sections": [
+        {
+          "section_id": "export-discount-cost",
+          "topic": "RECEIVABLE_COST",
+          "page": 1,
+          "start_anchor": "□ 환가료",
+          "end_anchor": "□ 수입신용장 개설/지급보증수수료"
+        }
+      ]
+    },
+    {
+      "product_id": "BOC-FX-FORWARD-SELL-GUIDE",
+      "canonical_name": "선물환(고객 매도) 계약·위험 확인 정보",
+      "bank_name": "중국은행 서울지점",
+      "source_file": "boc_fx_forward_sell.pdf",
+      "source_url": "https://pic.bankofchina.com/bocappd/korea/202604/P020260427380685258568.pdf",
+      "source_date": "2026-04-27",
+      "reviewed_on": "2026-09-08",
+      "reviewed_sha256": "3bd586856e0f3169a63804214eff3b5eab369053e3c775f6bc5f40acf676a1e6",
+      "review_status": "REVIEWED",
+      "enabled": true,
+      "selection_reason": "공식 선물환 고객매도 설명서 p.1-7. 외화 매도 결제 의무, 환율 손실, 중도해지 동의·정산 위험을 확인하는 참고자료. 신규 가입·자동 만기 연장·타행 계약 변경을 권유하지 않음. 실제 계약은행 약정 확인이 우선. 원문은 외부 인용·배포 시 사전 동의를 요구하므로 원본 및 발췌 보고서를 공개 저장소에 포함하지 않음.",
+      "scenario_codes": [
+        "FX_FORWARD_MATURITY"
+      ],
+      "trade_directions": [
+        "EXPORT"
+      ],
+      "include_pages": [
+        3,
+        4,
+        5
+      ],
+      "sections": [
+        {
+          "section_id": "settlement",
+          "topic": "FX_SETTLEMENT",
+          "page": 3,
+          "start_anchor": "미리 정한 약정환율",
+          "end_anchor": "1. 거래 조건"
+        },
+        {
+          "section_id": "market-risk",
+          "topic": "FX_RISK",
+          "page": 4,
+          "start_anchor": "② 만기 시점의 시장환율이",
+          "end_anchor": "위 예시 거래에서 만약 만기에 시장환율이 상승하여"
+        },
+        {
+          "section_id": "early-closeout",
+          "topic": "FX_CLOSEOUT",
+          "page": 5,
+          "start_anchor": "• 이 상품을 거래한 후 만기 이전에 중도해지",
+          "end_anchor": "• 중도해지에 따른 정산금액"
+        }
+      ]
+    },
+    {
+      "product_id": "HSBC-EXPORT-RECEIVABLE-AGREEMENT",
+      "canonical_name": "수출채권 매입 선결 조건·환매 의무 확인 정보",
+      "bank_name": "HSBC은행 서울지점",
+      "source_file": "hsbc_export_receivables_agreement.pdf",
+      "source_url": "https://www.hsbc.co.kr/-/media/korea/attachments/korea-kr/cmb-agreement/biz_agreement_036_kr.pdf",
+      "source_date": "2024-07-31",
+      "reviewed_on": "2026-09-08",
+      "reviewed_sha256": "597013a35071ebfda391678479504ec1ead656e70965f48c63f251fef1e6ff09",
+      "review_status": "REVIEWED",
+      "enabled": true,
+      "selection_reason": "공식 수출채권매입거래약정서의 매입 선결 조건·환매 의무·제출 서류 본문만 검색. 확인된 수출채권이 있을 때 공급자 지급 준비에 관한 참고자료로 연결하며 비소구·승인·개별 계약 적용을 단정하지 않음.",
+      "scenario_codes": [
+        "SUPPLIER_PAYMENT"
+      ],
+      "trade_directions": [
+        "EXPORT"
+      ],
+      "requires_export_receivable": true,
+      "sections": [
+        {
+          "section_id": "purchase-conditions",
+          "topic": "RECEIVABLE_TERMS",
+          "page": 4,
+          "start_anchor": "2.03 은행은",
+          "end_anchor": "2.04 결제일이"
+        },
+        {
+          "section_id": "repurchase",
+          "topic": "RECEIVABLE_RECOURSE",
+          "page": 5,
+          "start_anchor": "3.01 아래의 각호",
+          "end_anchor": "3.02 본 계약"
+        },
+        {
+          "section_id": "documents",
+          "topic": "RECEIVABLE_DOCUMENTS",
+          "page": 7,
+          "start_anchor": "5조 선결 요건",
+          "end_anchor": "6조 계약의 해지"
+        }
+      ],
+      "include_pages": [
+        4,
+        5,
+        7
+      ]
+    },
     {
       "product_id": "KB-GENERAL-WORKING-CAPITAL",
       "canonical_name": "일반운전자금대출",
@@ -8,7 +199,21 @@
       "scenario_codes": [
         "WORKING_CAPITAL_LOAN_MATURITY",
         "SUPPLIER_PAYMENT"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "PENDING",
+      "enabled": false,
+      "selection_reason": "대출 상환 또는 공급자 지급 일정 불일치에서 운영자금 조달 조건 검토. 대환 가능 여부는 단정하지 않음.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     },
     {
       "product_id": "KB-FX-LOAN",
@@ -16,7 +221,21 @@
       "source_file": "외화대출.pdf",
       "scenario_codes": [
         "FX_FORWARD_MATURITY"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "초기 범위에서 제외: 중복 상품 또는 연결 근거 추가 검토 필요.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     },
     {
       "product_id": "KB-PAYMENT-USANCE",
@@ -24,16 +243,42 @@
       "source_file": "서비스 소개 ( KB기업뱅킹 _ 외환 _ 수출입 _ KB PAYMENT USANCE _ 서비스 소개 ).pdf",
       "scenario_codes": [
         "SUPPLIER_PAYMENT"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": "https://obiz.kbstar.com/quics?page=C102065",
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "PENDING",
+      "enabled": false,
+      "selection_reason": "수입거래의 수입대금 지급 일정 불일치에 관한 금융정보 검색",
+      "trade_directions": [
+        "IMPORT"
+      ],
+      "requires_import_payment": true,
+      "requires_export_receivable": false
     },
     {
       "product_id": "KB-EXPORT-FACTORING",
       "canonical_name": "KB수출팩토링",
       "source_file": "KB수출팩토링.pdf",
       "scenario_codes": [
-        "SUPPLIER_PAYMENT",
-        "FX_FORWARD_MATURITY"
-      ]
+        "WORKING_CAPITAL_LOAN_MATURITY",
+        "SUPPLIER_PAYMENT"
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "PENDING",
+      "enabled": false,
+      "selection_reason": "확인된 수출채권의 조기 자금화에 관한 대상·제한 조건 검색",
+      "trade_directions": [
+        "EXPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": true
     },
     {
       "product_id": "KB-SELLER-LOAN",
@@ -41,7 +286,21 @@
       "source_file": "KB셀러론.pdf",
       "scenario_codes": [
         "SUPPLIER_PAYMENT"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "초기 범위에서 제외: 중복 상품 또는 연결 근거 추가 검토 필요.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     },
     {
       "product_id": "ONE-KB-CORPORATE-LOAN",
@@ -49,7 +308,21 @@
       "source_file": "ONE KB 기업 우대대출.pdf",
       "scenario_codes": [
         "WORKING_CAPITAL_LOAN_MATURITY"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "초기 범위에서 제외: 중복 상품 또는 연결 근거 추가 검토 필요.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     },
     {
       "product_id": "KB-MOADREAM-LOAN",
@@ -57,7 +330,21 @@
       "source_file": "KB 모아드림론.pdf",
       "scenario_codes": [
         "WORKING_CAPITAL_LOAN_MATURITY"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "초기 범위에서 제외: 중복 상품 또는 연결 근거 추가 검토 필요.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     },
     {
       "product_id": "KB-OWNER-OVERDRAFT",
@@ -66,7 +353,21 @@
       "scenario_codes": [
         "WORKING_CAPITAL_LOAN_MATURITY",
         "SUPPLIER_PAYMENT"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "초기 범위에서 제외: 중복 상품 또는 연결 근거 추가 검토 필요.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     },
     {
       "product_id": "KB-KSURE-TRADE-SUPPORT",
@@ -76,7 +377,43 @@
         "SUPPLIER_PAYMENT",
         "WORKING_CAPITAL_LOAN_MATURITY",
         "FX_FORWARD_MATURITY"
-      ]
+      ],
+      "bank_name": "KB국민은행",
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "초기 범위에서 제외: 중복 상품 또는 연결 근거 추가 검토 필요.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
+    },
+    {
+      "product_id": "KB-FX-FORWARD-GUIDE",
+      "canonical_name": "선물환 상품설명서·거래 안내 (확보 예정)",
+      "bank_name": "KB국민은행",
+      "source_file": "선물환_상품설명서.pdf",
+      "scenario_codes": [
+        "FX_FORWARD_MATURITY"
+      ],
+      "source_url": null,
+      "source_date": null,
+      "reviewed_on": null,
+      "reviewed_sha256": null,
+      "review_status": "MISSING",
+      "enabled": false,
+      "selection_reason": "외화 입금과 선물환 매도 결제 일정 불일치의 의무·위험·확인 사항 안내. 외화대출 자동 대체 금지.",
+      "trade_directions": [
+        "EXPORT",
+        "IMPORT"
+      ],
+      "requires_import_payment": false,
+      "requires_export_receivable": false
     }
   ]
 }

@@ -1,0 +1,57 @@
+{
+  "scope": "One synthetic export transaction; not a financial accuracy benchmark",
+  "run_id": "20260908T003526503773Z",
+  "model": "gpt-5-nano",
+  "served_service_tiers": [
+    "flex"
+  ],
+  "llm_calls": 10,
+  "input_tokens": 14294,
+  "output_tokens": 2929,
+  "status": "REVIEW_REQUIRED",
+  "checks": {
+    "all_documents_analyzed": true,
+    "receipt_date": true,
+    "three_conflicts": true,
+    "all_cases_have_evidence": true,
+    "three_service_cards": true,
+    "quotes_match_sources": true,
+    "reviewed_topics_only": true,
+    "scanned_invoice_ocr": true,
+    "report_created": true,
+    "not_failed": true
+  },
+  "indexed_records": 17,
+  "source_count": 4,
+  "services": [
+    {
+      "event_id": "DEMO-LOAN",
+      "service_code": "LOAN_REPAYMENT_REVIEW",
+      "status": "INFORMATION",
+      "source_ids": [
+        "SHINHAN-WORKING-CAPITAL-GUIDE"
+      ]
+    },
+    {
+      "event_id": "DEMO-FX",
+      "service_code": "FX_SETTLEMENT_REVIEW",
+      "status": "INFORMATION",
+      "source_ids": [
+        "BOC-FX-FORWARD-SELL-GUIDE"
+      ]
+    },
+    {
+      "event_id": "DEMO-PAY",
+      "service_code": "SUPPLIER_FUNDING_REVIEW",
+      "status": "INFORMATION",
+      "source_ids": [
+        "SHINHAN-WORKING-CAPITAL-GUIDE",
+        "HSBC-EXPORT-RECEIVABLE-GUIDE",
+        "HSBC-EXPORT-RECEIVABLE-AGREEMENT"
+      ]
+    }
+  ],
+  "warnings": [
+    "텍스트 PDF의 위치 정보는 읽기 순서 기반의 근사값입니다. 정확한 문서 위치는 원본 페이지와 함께 확인해 주세요."
+  ]
+}

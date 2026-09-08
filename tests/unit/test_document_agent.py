@@ -12,8 +12,30 @@ from app.services.ingestion.document_analyzer import (
 from app.services.ingestion.ocr_backend import NativePdfLayoutBackend, PaddleOcrBackend
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_DIR = PROJECT_ROOT / "data" / "fixtures" / "live_trade_documents"
 KB_DOC_DIR = PROJECT_ROOT / "kb_doc"
+
+
+@pytest.fixture
+def rule_samples(tmp_path: Path) -> Path:
+    """Small parser fixtures generated in isolation, independent of removed old demos."""
+    from reportlab.pdfgen.canvas import Canvas
+
+    documents = {
+        "booking.pdf": ["Booking Receipt Notice", "Booking No: BK-TEST", "ETD: 20Aug26"],
+        "invoice.pdf": [
+            "COMMERCIAL INVOICE",
+            "Invoice No. and date: INV-TEST AUG. 20. 2026",
+            "Amount: USD 45,000.00",
+        ],
+        "bill.pdf": ["Bill of Lading", "B/L No: BL-TEST", "On Board Date: 2026-08-20"],
+        "missing.pdf": ["Bill of Lading", "B/L No: BL-MISSING"],
+    }
+    for name, lines in documents.items():
+        canvas = Canvas(str(tmp_path / name))
+        for i, line in enumerate(lines):
+            canvas.drawString(50, 750 - i * 30, line)
+        canvas.save()
+    return tmp_path
 
 
 def test_actual_kb_doc_three_pdf_native_fallback_regression() -> None:
@@ -40,11 +62,13 @@ def test_actual_kb_doc_three_pdf_native_fallback_regression() -> None:
     assert bill.fields["on_board_date"].value == "2000-05-21"
 
 
-def test_three_document_portfolio_projection_is_small_and_evidence_backed() -> None:
+def test_three_document_portfolio_projection_is_small_and_evidence_backed(
+    rule_samples: Path,
+) -> None:
     paths = [
-        FIXTURE_DIR / "01_TRD-001_booking.pdf",
-        FIXTURE_DIR / "02_TRD-001_invoice.pdf",
-        FIXTURE_DIR / "03_TRD-001_bill_of_lading.pdf",
+        rule_samples / "booking.pdf",
+        rule_samples / "invoice.pdf",
+        rule_samples / "bill.pdf",
     ]
 
     booking, invoice, bill = analyze_core_documents(paths, backend=NativePdfLayoutBackend())
@@ -71,9 +95,9 @@ def test_three_document_portfolio_projection_is_small_and_evidence_backed() -> N
     )
 
 
-def test_missing_on_board_date_is_review_required_without_guessing() -> None:
+def test_missing_on_board_date_is_review_required_without_guessing(rule_samples: Path) -> None:
     result = analyze_core_document(
-        FIXTURE_DIR / "06_TRD-002_bill_of_lading_missing_on_board_date.pdf",
+        rule_samples / "missing.pdf",
         backend=NativePdfLayoutBackend(),
     )
 
@@ -127,14 +151,16 @@ def test_separate_label_and_value_boxes_use_right_and_below_geometry(tmp_path: P
     assert result.fields["invoice_no"].bbox == [0.05, 0.2, 0.65, 0.23]
 
 
-def test_paddle_backend_records_native_fallback_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_paddle_backend_records_native_fallback_reason(
+    monkeypatch: pytest.MonkeyPatch, rule_samples: Path
+) -> None:
     backend = PaddleOcrBackend(fallback=NativePdfLayoutBackend())
 
     def unavailable() -> None:
         raise ModuleNotFoundError("paddleocr")
 
     monkeypatch.setattr(backend, "_load_engine", unavailable)
-    layout = backend.extract(FIXTURE_DIR / "01_TRD-001_booking.pdf")
+    layout = backend.extract(rule_samples / "booking.pdf")
 
     assert layout.backend == "native_pdf_layout"
     assert layout.fallback_used is True

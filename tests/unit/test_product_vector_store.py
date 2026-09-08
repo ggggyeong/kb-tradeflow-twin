@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
+import sys
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
@@ -22,6 +25,26 @@ from app.services.product_vector_store import (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PDF_DIRECTORY = PROJECT_ROOT / "kb_doc" / "KB 금융상품 pdf"
 CATALOG_PATH = PROJECT_ROOT / "data" / "knowledge" / "product_catalog.json"
+
+
+@pytest.fixture(autouse=True)
+def reviewed_test_catalog(tmp_path: Path, monkeypatch: Any) -> None:
+    # Test-only approval of fixture files, never changes the production review state.
+    data = json.loads(CATALOG_PATH.read_text())
+    paths = {unicodedata.normalize("NFC", p.name): p for p in PDF_DIRECTORY.glob("*.pdf")}
+    for item in data["products"]:
+        item["enabled"] = False
+        if item["product_id"] in DEFAULT_PORTFOLIO_PRODUCT_IDS:
+            item.update(
+                enabled=True,
+                review_status="REVIEWED",
+                reviewed_on="2026-09-06",
+                source_url="https://example.com/test-only",
+                reviewed_sha256=hashlib.sha256(paths[item["source_file"]].read_bytes()).hexdigest(),
+            )
+    target = tmp_path / "approved-test-catalog.json"
+    target.write_text(json.dumps(data, ensure_ascii=False))
+    monkeypatch.setattr(sys.modules[__name__], "CATALOG_PATH", target)
 
 
 def fake_pdf_ocr(path: Path) -> list[str]:
@@ -102,7 +125,7 @@ class FakeSentenceModel:
         return [[1.0, 0.0, 0.0] for _ in texts]
 
 
-def test_pdf_corpus_defaults_to_seven_products_and_has_stable_citations() -> None:
+def test_pdf_corpus_uses_reviewed_products_and_stable_citations() -> None:
     first = load_product_vector_corpus(
         pdf_directory=PDF_DIRECTORY,
         catalog_path=CATALOG_PATH,
@@ -113,26 +136,23 @@ def test_pdf_corpus_defaults_to_seven_products_and_has_stable_citations() -> Non
         catalog_path=CATALOG_PATH,
         ocr_backend=fake_pdf_ocr,
     )
-    expanded = load_product_vector_corpus(
+    subset = load_product_vector_corpus(
         pdf_directory=PDF_DIRECTORY,
         catalog_path=CATALOG_PATH,
         ocr_backend=fake_pdf_ocr,
-        include_product_ids=["KB-SELLER-LOAN", "KB-OWNER-OVERDRAFT"],
+        include_product_ids=["KB-PAYMENT-USANCE"],
     )
 
-    assert first.product_ids == DEFAULT_PORTFOLIO_PRODUCT_IDS
-    assert len(first.source_hashes) == 7
-    assert len(first.chunks) == 55
+    assert set(first.product_ids) == set(DEFAULT_PORTFOLIO_PRODUCT_IDS)
+    assert len(first.source_hashes) == 3
+    assert len(first.chunks) == 24
     assert first.corpus_fingerprint == second.corpus_fingerprint
-    assert [chunk.chunk_id for chunk in first.chunks] == [
-        chunk.chunk_id for chunk in second.chunks
-    ]
+    assert [chunk.chunk_id for chunk in first.chunks] == [chunk.chunk_id for chunk in second.chunks]
     assert all(chunk.metadata["scenario_code"] in SCENARIO_CODES for chunk in first.chunks)
     assert all(int(chunk.metadata["page"]) >= 1 for chunk in first.chunks)
     assert all(len(str(chunk.metadata["source_sha256"])) == 64 for chunk in first.chunks)
-    assert len(expanded.product_ids) == 9
-    assert len(expanded.source_hashes) == 9
-    assert len(expanded.chunks) == 70
+    assert len(subset.product_ids) == 1
+    assert len(subset.chunks) == 2
 
 
 def test_multilingual_e5_uses_query_and_passage_prefixes() -> None:
@@ -153,6 +173,8 @@ def test_build_replaces_stale_data_and_writes_manifest(tmp_path: Path) -> None:
     collection.records["stale"] = {"document": "old", "metadata": {}}
     manifest = build_index_from_current_assets(
         project_root=PROJECT_ROOT,
+        pdf_directory=PDF_DIRECTORY,
+        catalog_path=CATALOG_PATH,
         persist_directory=tmp_path,
         ocr_backend=fake_pdf_ocr,
         embedding_provider=FakeEmbedding(),
@@ -160,9 +182,9 @@ def test_build_replaces_stale_data_and_writes_manifest(tmp_path: Path) -> None:
     )
 
     assert "stale" not in collection.records
-    assert manifest["product_count"] == 7
-    assert manifest["record_count"] == 55
-    assert collection.count() == 55
+    assert manifest["product_count"] == 3
+    assert manifest["record_count"] == 24
+    assert collection.count() == 24
     assert (tmp_path / "product_vector_manifest.json").is_file()
 
 
@@ -170,6 +192,8 @@ def test_search_filters_products_and_returns_page_evidence(tmp_path: Path) -> No
     collection = FakeCollection()
     build_index_from_current_assets(
         project_root=PROJECT_ROOT,
+        pdf_directory=PDF_DIRECTORY,
+        catalog_path=CATALOG_PATH,
         persist_directory=tmp_path,
         ocr_backend=fake_pdf_ocr,
         embedding_provider=FakeEmbedding(),
@@ -207,6 +231,8 @@ def test_search_filters_products_and_returns_page_evidence(tmp_path: Path) -> No
         "excerpt",
         "chunk_id",
         "score",
+        "topic",
+        "section_id",
     }
 
 
@@ -260,3 +286,40 @@ def test_manifest_detects_changed_source_pdf(tmp_path: Path) -> None:
         assert "source_hash:" in str(exc)
     else:
         raise AssertionError("Changed source PDF must invalidate the vector manifest")
+
+
+def test_archived_product_cannot_be_forced_into_index() -> None:
+    with pytest.raises(ProductVectorError, match="reviewed and enabled"):
+        load_product_vector_corpus(
+            pdf_directory=PDF_DIRECTORY,
+            catalog_path=CATALOG_PATH,
+            ocr_backend=fake_pdf_ocr,
+            include_product_ids=["KB-SELLER-LOAN"],
+        )
+
+
+def test_embedding_failure_preserves_existing_records(tmp_path: Path) -> None:
+    from app.services.product_vector_store import ProductChunk
+
+    class BrokenEmbedding(FakeEmbedding):
+        def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+            raise RuntimeError("embedding failed")
+
+    collection = FakeCollection()
+    collection.records["old"] = {"document": "old", "metadata": {}}
+    store = ChromaProductVectorStore(
+        persist_directory=tmp_path,
+        collection=collection,
+        embedding_provider=BrokenEmbedding(),
+        validate_manifest=False,
+    )
+    with pytest.raises(RuntimeError):
+        store.replace([ProductChunk(chunk_id="new", document="new", metadata={})])
+    assert set(collection.records) == {"old"}
+
+
+def test_reading_absent_index_does_not_create_empty_database(tmp_path: Path) -> None:
+    target = tmp_path / "absent-index"
+    with pytest.raises(ProductVectorError, match="not built"):
+        ChromaProductVectorStore(persist_directory=target)
+    assert not target.exists()

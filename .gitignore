@@ -1,4 +1,5 @@
-.env
+.env*
+!.env.example
 .venv/
 .pytest_cache/
 .mypy_cache/
@@ -8,7 +9,11 @@ __pycache__/
 .DS_Store
 tmp/
 output/
+outputs/
+data/knowledge/products/
+data/knowledge/models/
 data/object_store/
+data/uploads/
 data/knowledge/chroma_products/
 data/*.db
 data/*.sqlite

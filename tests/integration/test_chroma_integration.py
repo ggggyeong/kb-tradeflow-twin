@@ -58,3 +58,23 @@ def test_real_chroma_persists_and_filters_page_evidence(tmp_path: Path) -> None:
     assert len(hits) == 1
     assert hits[0]["product_id"] == "PAYMENT-USANCE"
     assert hits[0]["page"] == 1
+
+
+def test_real_chroma_topic_filter_excludes_other_sections_on_same_page(tmp_path: Path) -> None:
+    store = ChromaProductVectorStore(
+        persist_directory=tmp_path, embedding_provider=TinyEmbedding(), validate_manifest=False
+    )
+    repayment = _chunk("repayment", "WORKING_CAPITAL_LOAN_MATURITY", "SHARED-GUIDE")
+    repayment.metadata.update(topic="LOAN_REPAYMENT", section_id="repayment")
+    funding = _chunk("funding", "WORKING_CAPITAL_LOAN_MATURITY", "SHARED-GUIDE")
+    funding.metadata.update(topic="FUNDING_PURPOSE", section_id="funding")
+    store.replace([repayment, funding])
+    hits = store.search(
+        "대출",
+        ["WORKING_CAPITAL_LOAN_MATURITY"],
+        allowed_product_ids=["SHARED-GUIDE"],
+        topics=["LOAN_REPAYMENT"],
+        top_k=2,
+    )
+    assert [hit["section_id"] for hit in hits] == ["repayment"]
+    assert hits[0]["topic"] == "LOAN_REPAYMENT"

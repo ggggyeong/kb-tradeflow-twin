@@ -22,15 +22,20 @@ from app.services.product_vector_store import (  # noqa: E402
     build_index_from_current_assets,
 )
 
-PDF_DIRECTORY = PROJECT_ROOT / "kb_doc" / "KB 금융상품 pdf"
+PDF_DIRECTORY = PROJECT_ROOT / "data" / "knowledge" / "products"
 CATALOG_PATH = PROJECT_ROOT / "data" / "knowledge" / "product_catalog.json"
 PERSIST_DIRECTORY = PROJECT_ROOT / "data" / "knowledge" / "chroma_products"
 
 
-def _paddle_pages() -> Any:
-    from app.services.ingestion.ocr_backend import default_ocr_backend
+def _ocr_pages(name: str) -> Any:
+    if name == "rapid":
+        from app.services.ingestion.rapid_ocr_backend import RapidOcrBackend
 
-    backend = default_ocr_backend()
+        backend: Any = RapidOcrBackend()
+    else:
+        from app.services.ingestion.ocr_backend import default_ocr_backend
+
+        backend = default_ocr_backend()
 
     def extract(pdf_path: Path) -> list[str]:
         layout = backend.extract(pdf_path)
@@ -47,30 +52,40 @@ def _dry_run(include_product_ids: list[str]) -> dict[str, Any]:
     missing = set(products) - paths.keys()
     if missing:
         raise FileNotFoundError(f"Missing product PDFs: {sorted(missing)}")
-    page_count = native_text_pages = 0
-    for source in products:
+    page_count = selected_page_count = native_text_pages = 0
+    for source, product in products.items():
         pages = PdfReader(paths[source]).pages
         page_count += len(pages)
-        native_text_pages += sum(bool((page.extract_text() or "").strip()) for page in pages)
+        selected = product.get("include_pages") or list(range(1, len(pages) + 1))
+        if any(p > len(pages) for p in selected):
+            raise ValueError(f"선택한 페이지가 PDF 범위를 벗어납니다: {source}")
+        selected_page_count += len(selected)
+        native_text_pages += sum(
+            bool((pages[p - 1].extract_text() or "").strip()) for p in selected
+        )
     return {
         "mode": "dry-run",
+        "notice": "검토 완료·활성화된 PDF만 색인합니다. 0개이면 카탈로그 원문 검토가 먼저 필요합니다.",
         "product_ids": list(product_ids),
         "product_count": len(product_ids),
         "page_count": page_count,
+        "selected_page_count": selected_page_count,
         "native_text_pages": native_text_pages,
-        "ocr_required_pages": page_count - native_text_pages,
+        "ocr_required_pages": selected_page_count - native_text_pages,
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build the seven-product Chroma portfolio index.")
+    parser = argparse.ArgumentParser(
+        description="Build a Chroma index from reviewed and enabled PDFs only."
+    )
     parser.add_argument("--persist-directory", type=Path, default=PERSIST_DIRECTORY)
     parser.add_argument("--collection-name", default=DEFAULT_COLLECTION_NAME)
     parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
     parser.add_argument("--embedding-dimension", type=int, default=DEFAULT_EMBEDDING_DIMENSION)
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
     parser.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP)
-    parser.add_argument("--ocr-backend", choices=("paddle", "none"), default="paddle")
+    parser.add_argument("--ocr-backend", choices=("rapid", "paddle", "none"), default="rapid")
     parser.add_argument("--include-product-id", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -85,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             project_root=PROJECT_ROOT,
             persist_directory=args.persist_directory,
             collection_name=args.collection_name,
-            ocr_backend=_paddle_pages() if args.ocr_backend == "paddle" else None,
+            ocr_backend=_ocr_pages(args.ocr_backend) if args.ocr_backend != "none" else None,
             embedding_provider=MultilingualE5Embedding(
                 args.embedding_model,
                 dimension=args.embedding_dimension,

@@ -157,8 +157,7 @@ class LayoutDocumentIndex:
             if vertical_gap < -0.004 or vertical_gap > max_vertical_gap:
                 continue
             horizontally_related = (
-                line.bbox[2] >= label.bbox[0] - 0.03
-                and line.bbox[0] <= label.bbox[2] + 0.20
+                line.bbox[2] >= label.bbox[0] - 0.03 and line.bbox[0] <= label.bbox[2] + 0.20
             )
             if horizontally_related:
                 candidates.append(line)
@@ -178,7 +177,9 @@ class NativePdfLayoutBackend:
             width = float(pdf_page.mediabox.width)
             height = float(pdf_page.mediabox.height)
             complete_lines = [
-                line.strip() for line in (pdf_page.extract_text() or "").splitlines() if line.strip()
+                line.strip()
+                for line in (pdf_page.extract_text() or "").splitlines()
+                if line.strip()
             ]
             line_step = 0.90 / max(len(complete_lines), 1)
             lines = [
@@ -214,8 +215,8 @@ class NativePdfLayoutBackend:
             backend=self.name,
             pages=pages,
             warnings=[
-                "Native PDF text fallback uses reading-order pseudo boxes; "
-                "PaddleOCR supplies exact OCR geometry."
+                "텍스트 PDF의 위치 정보는 읽기 순서 기반의 근사값입니다. "
+                "정확한 문서 위치는 원본 페이지와 함께 확인해 주세요."
             ],
         )
 
@@ -237,8 +238,8 @@ class PaddleOcrBackend:
             else:
                 raw_result = engine.ocr(str(path), cls=True)
             document = _normalize_paddle_result(path, raw_result)
-            if not any(page.lines for page in document.pages):
-                raise ValueError("PaddleOCR returned no recognized lines")
+            if any(not page.lines for page in document.pages):
+                raise ValueError("PaddleOCR did not recognize every page")
             return document
         except Exception as error:
             return self._fallback(path, error)
@@ -312,9 +313,7 @@ def _box_coordinates(value: Any) -> tuple[float, float, float, float] | None:
         return x0, y0, x1, y1
     points = [point.tolist() if hasattr(point, "tolist") else point for point in value]
     if points and all(
-        isinstance(point, Sequence)
-        and not isinstance(point, (str, bytes))
-        and len(point) >= 2
+        isinstance(point, Sequence) and not isinstance(point, (str, bytes)) and len(point) >= 2
         for point in points
     ):
         xs = [float(point[0]) for point in points]
@@ -358,7 +357,9 @@ def _normalized_lines(
     )
 
 
-def _v3_entries(payload: dict[str, Any]) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+def _v3_entries(
+    payload: dict[str, Any],
+) -> list[tuple[str, float, tuple[float, float, float, float]]]:
     texts = _first(payload, ("rec_texts", "texts"))
     scores = _first(payload, ("rec_scores", "scores"))
     boxes = _first(payload, ("rec_boxes", "dt_polys", "boxes"))

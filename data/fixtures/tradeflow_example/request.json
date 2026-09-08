@@ -1,0 +1,13 @@
+{
+  "user_request": "예시 무역서류와 금융일정 엑셀을 분석해 세 가지 자금 일정 충돌과 관련 금융정보를 확인하고 PDF 보고서를 만들어 주세요.",
+  "transaction_id": "DEMO-EXPORT-001",
+  "trade_direction": "EXPORT",
+  "export_receivable_confirmed": true,
+  "document_paths": [
+    "data/fixtures/tradeflow_example/01_booking.pdf",
+    "data/fixtures/tradeflow_example/02_invoice_scanned.pdf",
+    "data/fixtures/tradeflow_example/03_bill_of_lading.pdf"
+  ],
+  "financial_calendar_path": "data/fixtures/tradeflow_example/financial_calendar.xlsx",
+  "report_output_path": "output/pdf/tradeflow-example-live.pdf"
+}

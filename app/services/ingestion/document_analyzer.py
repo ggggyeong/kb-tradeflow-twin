@@ -73,8 +73,8 @@ class FieldCandidate:
 
 
 def _parse_date(value: str) -> str:
-    cleaned = " ".join(value.replace(".", " ").replace(",", " ").split())
-    for fmt in ("%d%b%y", "%b %d %Y", "%d %b %Y", "%Y-%m-%d", "%Y %m %d"):
+    cleaned = " ".join(value.replace(".", " ").replace(",", " ").replace("/", "-").split())
+    for fmt in ("%d%b%y", "%d %b %y", "%b %d %Y", "%B %d %Y", "%d %b %Y", "%Y-%m-%d", "%Y %m %d"):
         try:
             return datetime.strptime(cleaned, fmt).date().isoformat()
         except ValueError:
@@ -263,8 +263,13 @@ def _bill_of_lading(document: LayoutDocument) -> dict[str, FieldCandidate]:
         onboard = index.find_value("On Board Date")
     if onboard is not None:
         date_match = re.search(
-            r"[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{4}[-./]\d{1,2}[-./]\d{1,2}",
+            # Native extraction can join the previous label: 'SignatureMay 21, 2000'.
+            # Match actual month names, not an arbitrary 3-9 letter suffix.
+            r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+            r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+            r"\.?\s+\d{1,2},?\s+\d{4}|\d{4}[-./]\d{1,2}[-./]\d{1,2}",
             onboard.value,
+            flags=re.IGNORECASE,
         )
         if date_match is not None:
             raw_date = date_match.group(0)

@@ -80,10 +80,12 @@ def test_report_generator_abstains_without_product_evidence(tmp_path: Path) -> N
         documents=[],
         conflicts=[],
         product_options=[],
+        warnings=["입력 확인이 필요하여 상품 검색을 생략했습니다."],
     )
     target = tmp_path / "no-evidence.pdf"
 
     PortfolioReportGenerator().generate(payload, target)
 
     text = "\n".join(page.extract_text() or "" for page in PdfReader(target).pages)
-    assert "상품 근거가 없어 추천을 보류" in text
+    assert "제공할 상품 근거가 없습니다" in text
+    assert "입력 확인이 필요하여 상품 검색을 생략했습니다" in text

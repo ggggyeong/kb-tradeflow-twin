@@ -4,14 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kb-tradeflow-twin"
-version = "1.0.0"
-description = "Explainable trade-finance portfolio: OCR, conflict rules, ChromaDB RAG, PDF report"
+version = "3.0.0"
+description = "Three-agent trade finance workflow with grounded OCR, financial rules, Chroma RAG and reports"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "chromadb>=1,<2",
   "fastapi>=0.116,<1",
   "langgraph>=1.1,<2",
+  "openai>=3.8,<4",
+  "openpyxl>=3.1,<4",
+  "python-dotenv>=1,<2",
   "pydantic>=2.11,<3",
   "pypdf>=6,<7",
   "reportlab>=4.4,<5",
@@ -21,6 +24,11 @@ dependencies = [
 
 [project.optional-dependencies]
 ocr = [
+  "rapidocr>=3.9,<4",
+  "onnxruntime>=1,<2",
+  "pymupdf>=1.26,<2",
+]
+paddle = [
   "paddleocr>=3,<4",
   "paddlepaddle>=3,<4",
 ]
@@ -31,6 +39,7 @@ dev = [
   "pytest>=8.4,<10",
   "ruff>=0.12,<1",
   "types-reportlab>=4.4,<5",
+  "types-openpyxl>=3.1,<4",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -38,6 +47,7 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra"
 
 [tool.ruff]

@@ -9,25 +9,22 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-VECTOR_MANIFEST_SCHEMA = "product-vector-manifest-v1"
-DEFAULT_COLLECTION_NAME = "kb_product_evidence"
-DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
-DEFAULT_EMBEDDING_DIMENSION = 768
+from app.services.product_catalog import ProductCatalog
+
+VECTOR_MANIFEST_SCHEMA = "product-vector-manifest-v3"
+DEFAULT_COLLECTION_NAME = "trade_finance_evidence"
+DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
+DEFAULT_EMBEDDING_DIMENSION = 384
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 100
 DEFAULT_MANIFEST_NAME = "product_vector_manifest.json"
 SCENARIO_CODES = ("WORKING_CAPITAL_LOAN_MATURITY", "FX_FORWARD_MATURITY", "SUPPLIER_PAYMENT")
 DEFAULT_PORTFOLIO_PRODUCT_IDS = (
     "KB-GENERAL-WORKING-CAPITAL",
-    "KB-FX-LOAN",
     "KB-PAYMENT-USANCE",
     "KB-EXPORT-FACTORING",
-    "ONE-KB-CORPORATE-LOAN",
-    "KB-MOADREAM-LOAN",
-    "KB-KSURE-TRADE-SUPPORT",
 )
 _SCENARIOS = frozenset(SCENARIO_CODES)
-_CORE_PRODUCTS = frozenset(DEFAULT_PORTFOLIO_PRODUCT_IDS)
 PdfOcrBackend = Callable[[Path], Sequence[str]]
 Metadata = dict[str, str | int | float | bool]
 
@@ -78,18 +75,19 @@ def _select_products(
     catalog_path: Path,
     include_product_ids: Sequence[str] | None,
 ) -> tuple[tuple[str, ...], dict[str, dict[str, Any]]]:
-    catalog = _read_json(catalog_path)
-    if catalog.get("schema_version") != "kb-product-catalog-v2":
-        raise ProductVectorError("Unsupported product catalog schema")
-    products = {str(item["product_id"]): item for item in catalog.get("products", [])}
-    selected = set(_CORE_PRODUCTS)
-    selected.update(str(value).strip() for value in (include_product_ids or ()) if str(value).strip())
+    catalog = ProductCatalog.load(catalog_path)
+    products = {p.product_id: p.model_dump(mode="json") for p in catalog.products}
+    selected = {p.product_id for p in catalog.products if p.enabled}
+    requested = set(include_product_ids or ())
+    if requested - selected:
+        raise ProductVectorError("Only reviewed and enabled products can be included")
+    if requested:
+        selected = requested
     unknown = selected - products.keys()
     if unknown:
         raise ProductVectorError(f"Unknown product ids: {sorted(unknown)}")
-    ordered = (*DEFAULT_PORTFOLIO_PRODUCT_IDS, *sorted(selected - _CORE_PRODUCTS))
+    ordered = tuple(sorted(selected))
     by_source: dict[str, dict[str, Any]] = {}
-    covered: set[str] = set()
     for product_id in ordered:
         item = products[product_id]
         source = unicodedata.normalize("NFC", str(item.get("source_file", "")).strip())
@@ -100,17 +98,19 @@ def _select_products(
             "product_id": product_id,
             "product_name": str(item["canonical_name"]).strip(),
             "scenario_codes": scenarios,
+            "trade_directions": item["trade_directions"],
+            "source_url": item["source_url"],
+            "reviewed_on": item["reviewed_on"],
+            "reviewed_sha256": item["reviewed_sha256"],
+            "include_pages": item["include_pages"],
+            "sections": item["sections"],
         }
-        covered.update(scenarios)
-    if covered != _SCENARIOS:
-        raise ProductVectorError("Selected products must cover all three scenarios")
     return ordered, by_source
 
 
 def _pdf_paths(pdf_directory: Path) -> dict[str, Path]:
     return {
-        unicodedata.normalize("NFC", path.name): path
-        for path in Path(pdf_directory).glob("*.pdf")
+        unicodedata.normalize("NFC", path.name): path for path in Path(pdf_directory).glob("*.pdf")
     }
 
 
@@ -134,6 +134,18 @@ def split_product_page(
     )
 
 
+def extract_reviewed_section(text: str, start_anchor: str, end_anchor: str) -> str:
+    """Fail closed when a reviewed boundary disappears or becomes ambiguous."""
+    normalized = " ".join(text.split())
+    start, end = " ".join(start_anchor.split()), " ".join(end_anchor.split())
+    if normalized.count(start) != 1 or normalized.count(end) != 1:
+        raise ProductVectorError("Reviewed section anchor is missing or ambiguous")
+    left, right = normalized.index(start), normalized.index(end)
+    if right <= left:
+        raise ProductVectorError("Reviewed section boundaries are reversed")
+    return normalized[left:right].strip()
+
+
 def load_product_vector_corpus(
     *,
     pdf_directory: Path,
@@ -148,6 +160,10 @@ def load_product_vector_corpus(
     except ImportError as exc:
         raise ProductVectorError("Install pypdf to read product PDFs") from exc
     product_ids, products = _select_products(Path(catalog_path), include_product_ids)
+    if not products:
+        raise ProductVectorError(
+            "No reviewed and enabled PDFs. Review the catalog before building the index."
+        )
     paths = _pdf_paths(pdf_directory)
     missing = set(products) - paths.keys()
     if missing:
@@ -158,7 +174,12 @@ def load_product_vector_corpus(
     for source, product in products.items():
         path, reader = paths[source], PdfReader(paths[source])
         source_hashes[source] = _hash_file(path)
+        if source_hashes[source] != product["reviewed_sha256"]:
+            raise ProductVectorError(f"Reviewed source hash mismatch: {source}")
         native_pages = [(page.extract_text() or "").strip() for page in reader.pages]
+        selected_pages = set(product["include_pages"] or range(1, len(native_pages) + 1))
+        if any(page > len(native_pages) for page in selected_pages):
+            raise ProductVectorError(f"Catalog page outside PDF: {source}")
         if any(not text for text in native_pages):
             if ocr_backend is None:
                 raise ProductVectorError(
@@ -169,18 +190,39 @@ def load_product_vector_corpus(
                 raise ProductVectorError(f"OCR page count mismatch: {source}")
         else:
             ocr_pages = [""] * len(native_pages)
-        for page, (native_text, ocr_text) in enumerate(zip(native_pages, ocr_pages, strict=True), 1):
-            page_chunks = split_product_page(
-                native_text or ocr_text,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
+        for page, (native_text, ocr_text) in enumerate(
+            zip(native_pages, ocr_pages, strict=True), 1
+        ):
+            if page not in selected_pages:
+                continue
+            sections = [s for s in product["sections"] if s["page"] == page]
+            spans = (
+                [
+                    (
+                        s["section_id"],
+                        s["topic"],
+                        extract_reviewed_section(
+                            native_text or ocr_text, s["start_anchor"], s["end_anchor"]
+                        ),
+                    )
+                    for s in sections
+                ]
+                if sections
+                else [(f"page-{page}", "GENERAL", native_text or ocr_text)]
             )
+            page_chunks = [
+                (section_id, topic, index, document)
+                for section_id, topic, span in spans
+                for index, document in enumerate(
+                    split_product_page(span, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                )
+            ]
             if not page_chunks:
                 raise ProductVectorError(f"No text extracted: {source} page {page}")
-            for chunk_index, document in enumerate(page_chunks):
+            for section_id, topic, chunk_index, document in page_chunks:
                 text_hash = _hash_text(document)
                 for scenario in product["scenario_codes"]:
-                    identity = f"{product['product_id']}|{scenario}|{source_hashes[source]}|{page}|{chunk_index}|{text_hash}"
+                    identity = f"{product['product_id']}|{scenario}|{source_hashes[source]}|{page}|{section_id}|{topic}|{chunk_index}|{text_hash}"
                     chunks.append(
                         ProductChunk(
                             chunk_id=f"product-chunk-v1-{_hash_text(identity)}",
@@ -193,6 +235,11 @@ def load_product_vector_corpus(
                                 "source_sha256": source_hashes[source],
                                 "page": page,
                                 "chunk_index": chunk_index,
+                                "section_id": section_id,
+                                "topic": topic,
+                                "trade_directions": ",".join(product["trade_directions"]),
+                                "source_url": product["source_url"],
+                                "reviewed_on": product["reviewed_on"],
                             },
                         )
                     )
@@ -225,8 +272,15 @@ class MultilingualE5Embedding:
                 sentence_transformers = import_module("sentence_transformers")
             except ImportError as exc:
                 raise ProductVectorError("Install sentence-transformers for E5") from exc
-            self._model = sentence_transformers.SentenceTransformer(self.model_name)
-        actual = getattr(self._model, "get_sentence_embedding_dimension", lambda: None)()
+            from app.core.paths import KNOWLEDGE_DIR
+
+            self._model = sentence_transformers.SentenceTransformer(
+                self.model_name, device="cpu", cache_folder=str(KNOWLEDGE_DIR / "models" / "e5")
+            )
+        dimension_getter = getattr(self._model, "get_embedding_dimension", None) or getattr(
+            self._model, "get_sentence_embedding_dimension", lambda: None
+        )
+        actual = dimension_getter() if callable(dimension_getter) else None
         if actual is not None and int(actual) != self.dimension:
             raise ProductVectorError(f"Expected embedding dimension {self.dimension}, got {actual}")
         encoded = self._model.encode(
@@ -262,8 +316,10 @@ class ChromaProductVectorStore:
         validate_manifest: bool = True,
     ) -> None:
         self.persist_directory = Path(persist_directory)
-        self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.persist_directory / DEFAULT_MANIFEST_NAME
+        if validate_manifest and not self.manifest_path.is_file():
+            raise ProductVectorError("Product index is not built or is incomplete")
+        self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.collection_name = collection_name
         self.embedding_provider = embedding_provider or MultilingualE5Embedding()
         if collection is None:
@@ -282,20 +338,29 @@ class ChromaProductVectorStore:
             self.validate_manifest()
 
     def replace(self, chunks: Sequence[ProductChunk], batch_size: int = 128) -> None:
-        old_ids = self.collection.get(include=[]).get("ids", [])
-        if old_ids and isinstance(old_ids[0], list):
-            old_ids = [value for group in old_ids for value in group]
-        if old_ids:
-            self.collection.delete(ids=old_ids)
+        if batch_size < 1 or not chunks:
+            raise ProductVectorError("Non-empty chunks and positive batch_size are required")
+        # Compute all embeddings before touching the existing collection.
+        batches = []
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start : start + batch_size]
             documents = [chunk.document for chunk in batch]
+            batches.append((batch, documents, self.embedding_provider.embed_documents(documents)))
+        old_ids = self.collection.get(include=[]).get("ids", [])
+        if old_ids and isinstance(old_ids[0], list):
+            old_ids = [value for group in old_ids for value in group]
+        # An interrupted rebuild must not be mistaken for a validated index.
+        self.manifest_path.unlink(missing_ok=True)
+        for batch, documents, embeddings in batches:
             self.collection.upsert(
                 ids=[chunk.chunk_id for chunk in batch],
                 documents=documents,
                 metadatas=[chunk.metadata for chunk in batch],
-                embeddings=self.embedding_provider.embed_documents(documents),
+                embeddings=embeddings,
             )
+        stale = set(old_ids) - {chunk.chunk_id for chunk in chunks}
+        if stale:
+            self.collection.delete(ids=sorted(stale))
 
     def search(
         self,
@@ -303,6 +368,7 @@ class ChromaProductVectorStore:
         scenario_codes: Sequence[str],
         allowed_product_ids: Sequence[str] | None = None,
         top_k: int = 5,
+        topics: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         scenarios = tuple(dict.fromkeys(scenario_codes))
         if not scenarios or set(scenarios) - _SCENARIOS:
@@ -325,6 +391,11 @@ class ChromaProductVectorStore:
                 else {"product_id": {"$in": product_ids}}
             )
             where = {"$and": [scenario_filter, product_filter]}
+        if topics is not None:
+            if not topics:
+                raise ValueError("topics must not be empty")
+            filters = where.get("$and", [where])
+            where = {"$and": [*filters, {"topic": {"$in": list(dict.fromkeys(topics))}}]}
         raw = self.collection.query(
             query_embeddings=[self.embedding_provider.embed_query(query)],
             n_results=top_k * max(2, len(scenarios)),
@@ -341,6 +412,7 @@ class ChromaProductVectorStore:
                 metadata["product_id"],
                 metadata["source_sha256"],
                 metadata["page"],
+                metadata.get("section_id", ""),
                 metadata["chunk_index"],
             )
             if evidence in seen:
@@ -356,9 +428,11 @@ class ChromaProductVectorStore:
                     "source_file": metadata["source_file"],
                     "page": int(metadata["page"]),
                     "source_sha256": metadata["source_sha256"],
-                    "excerpt": text if len(text) <= 360 else f"{text[:360].rstrip()}…",
+                    "excerpt": text,
                     "chunk_id": chunk_id,
                     "score": None if distance is None else 1.0 - distance,
+                    "topic": metadata.get("topic", "GENERAL"),
+                    "section_id": metadata.get("section_id", ""),
                 }
             )
             if len(results) == top_k:
@@ -410,11 +484,9 @@ def build_index_from_current_assets(
     client: Any | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root or Path(__file__).resolve().parents[2])
-    pdf_directory = Path(pdf_directory or root / "kb_doc" / "KB 금융상품 pdf")
+    pdf_directory = Path(pdf_directory or root / "data" / "knowledge" / "products")
     catalog_path = Path(catalog_path or root / "data" / "knowledge" / "product_catalog.json")
-    persist_directory = Path(
-        persist_directory or root / "data" / "knowledge" / "chroma_products"
-    )
+    persist_directory = Path(persist_directory or root / "data" / "knowledge" / "chroma_products")
     corpus = load_product_vector_corpus(
         pdf_directory=pdf_directory,
         catalog_path=catalog_path,
@@ -438,6 +510,8 @@ def build_index_from_current_assets(
         "collection_name": collection_name,
         "embedding_model": provider.model_name,
         "embedding_dimension": provider.dimension,
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap,
         "product_ids": list(corpus.product_ids),
         "product_count": len(corpus.product_ids),
         "record_count": len(corpus.chunks),

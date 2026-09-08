@@ -1,0 +1,15 @@
+{
+  "notice": "가상 입력으로부터 독립적으로 계산한 테스트 기대값이며 LLM 실행 결과가 아닙니다.",
+  "transaction_id": "DEMO-EXPORT-001",
+  "invoice_date": "2026-09-15",
+  "on_board_date": "2026-09-21",
+  "payment_terms": "T/T 30 CALENDAR DAYS AFTER B/L ON BOARD DATE",
+  "expected_receipt_date": "2026-10-21",
+  "receipt_currency": "USD",
+  "expected_conflicts": [
+    {"event_id": "DEMO-LOAN", "scenario_code": "WORKING_CAPITAL_LOAN_MATURITY", "gap_days": 6},
+    {"event_id": "DEMO-FX", "scenario_code": "FX_FORWARD_MATURITY", "gap_days": 5},
+    {"event_id": "DEMO-PAY", "scenario_code": "SUPPLIER_PAYMENT", "gap_days": 2}
+  ],
+  "excluded_event_id": "OTHER-LOAN"
+}
