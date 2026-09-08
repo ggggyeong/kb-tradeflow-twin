@@ -45,11 +45,17 @@ class ProductRecord(BaseModel):
     trade_directions: list[Literal["EXPORT", "IMPORT"]]
     requires_import_payment: bool = False
     requires_export_receivable: bool = False
+    # Page mode reviews the scope of a source, not a predetermined answer span.
+    index_mode: Literal["pages", "sections"] = "sections"
     include_pages: list[int] = Field(default_factory=list)
     sections: list[SourceSection] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def reviewed_before_activation(self) -> ProductRecord:
+        if self.index_mode == "pages" and self.sections:
+            raise ValueError("Page indexing must not contain answer-span sections")
+        if self.index_mode == "pages" and self.enabled and not self.include_pages:
+            raise ValueError("Page indexing requires explicitly reviewed include_pages")
         if len({s.section_id for s in self.sections}) != len(self.sections):
             raise ValueError("Duplicate source section id")
         if self.sections and set(self.include_pages) != {s.page for s in self.sections}:

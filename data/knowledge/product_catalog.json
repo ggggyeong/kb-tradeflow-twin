@@ -12,7 +12,7 @@
       "reviewed_sha256": "b2d4637e1c13bb70c64a20b58d74e6b437ebe996c09edff3fdbb09894c0bf295",
       "review_status": "REVIEWED",
       "enabled": true,
-      "selection_reason": "공식 기업대출 공통 설명서의 고객용 p.12-21. 운영자금 용도, 한도·심사, 상환 및 연체 유의사항을 확인하는 참고자료. 특정 대출 승인이나 기존 대출 상환용 이용을 보장하지 않음. 같은 내용의 은행용 p.1-10과 별도 동의서는 색인 제외.",
+      "selection_reason": "공식 기업대출 공통 설명서 고객용 p.12-21 전체를 문단 검색 후보로 사용. 비용·금리·상환·연체·연장·기업대출 유지 서류와 용어 부록을 함께 보존하여 질문이 필요한 본문을 선택하도록 함. 특정 대출 승인, 신규 신청의 전체 서류, 기존 대출 상환용 이용을 보장하지 않음. 중복 은행용 p.1-10과 별도 동의서 p.11은 제외. 표의 숫자와 빈 계약란은 고객에게 적용된 값이 아님.",
       "scenario_codes": [
         "WORKING_CAPITAL_LOAN_MATURITY",
         "SUPPLIER_PAYMENT"
@@ -21,49 +21,9 @@
         "EXPORT",
         "IMPORT"
       ],
-      "include_pages": [
-        12,
-        17,
-        18,
-        19
-      ],
-      "sections": [
-        {
-          "section_id": "operating-purpose",
-          "topic": "FUNDING_PURPOSE",
-          "page": 12,
-          "start_anchor": "• 기업대출은 자금용도에 따라",
-          "end_anchor": "Q2. 모든 기업대출상품"
-        },
-        {
-          "section_id": "repayment",
-          "topic": "LOAN_REPAYMENT",
-          "page": 17,
-          "start_anchor": "■ 상환방법에 따른 상환금액·이자율·시기",
-          "end_anchor": "■ 상환방법별 원리금 부담액 예시"
-        },
-        {
-          "section_id": "overdue",
-          "topic": "LOAN_OVERDUE",
-          "page": 18,
-          "start_anchor": "❷ 「원금을 상환하기로 약정한 날」",
-          "end_anchor": "❸ 「분할상환금"
-        },
-        {
-          "section_id": "extension",
-          "topic": "LOAN_EXTENSION",
-          "page": 18,
-          "start_anchor": "9 계약기간 및 연장사항",
-          "end_anchor": "준법감시인 사전심사필"
-        },
-        {
-          "section_id": "borrower",
-          "topic": "FUNDING_ELIGIBILITY",
-          "page": 19,
-          "start_anchor": "■ 기업대출의 거래 상대방",
-          "end_anchor": "■ 기업대출의 연대보증인"
-        }
-      ]
+      "index_mode": "pages",
+      "include_pages": [12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+      "sections": []
     },
     {
       "product_id": "HSBC-EXPORT-RECEIVABLE-GUIDE",
@@ -74,9 +34,9 @@
       "source_date": "2024-02-23",
       "reviewed_on": "2026-09-08",
       "reviewed_sha256": "8d90047ff0ac6028ef7d236ea9e99b7931ae0776e6e3c9479b7caa4406e2653c",
-      "review_status": "REVIEWED",
-      "enabled": true,
-      "selection_reason": "수출채권이 확인된 공급자 지급 일정에서 수출환어음 매입의 환가료 설명만 제공. 비용의 참고 정보이며 매입 선결 조건·환매 의무는 별도 수출채권 약정서에서 확인. 수입금융·보증·금리 지표 본문 제외.",
+      "review_status": "ARCHIVED",
+      "enabled": false,
+      "selection_reason": "이번 MVP 검색에서 제외. 공통 설명서 p.1에 수출환어음 매입의 환가료, 매출채권 할인, 수입금융·보증 등 서로 다른 거래의 비용이 함께 있다. 수출채권 보유 입력만으로 수출환어음 매입 계약을 가정할 수 없으므로 해당 환가료를 수출채권 할인 비용으로 연결하지 않음. 활성 수출채권할인 기본 계약 자체의 할인수수료·조정수수료 조항을 대신 검색. 원본과 출처 기록은 보존.",
       "scenario_codes": [
         "SUPPLIER_PAYMENT"
       ],
@@ -84,18 +44,8 @@
         "EXPORT"
       ],
       "requires_export_receivable": true,
-      "include_pages": [
-        1
-      ],
-      "sections": [
-        {
-          "section_id": "export-discount-cost",
-          "topic": "RECEIVABLE_COST",
-          "page": 1,
-          "start_anchor": "□ 환가료",
-          "end_anchor": "□ 수입신용장 개설/지급보증수수료"
-        }
-      ]
+      "include_pages": [],
+      "sections": []
     },
     {
       "product_id": "BOC-FX-FORWARD-SELL-GUIDE",
@@ -108,45 +58,20 @@
       "reviewed_sha256": "3bd586856e0f3169a63804214eff3b5eab369053e3c775f6bc5f40acf676a1e6",
       "review_status": "REVIEWED",
       "enabled": true,
-      "selection_reason": "공식 선물환 고객매도 설명서 p.1-7. 외화 매도 결제 의무, 환율 손실, 중도해지 동의·정산 위험을 확인하는 참고자료. 신규 가입·자동 만기 연장·타행 계약 변경을 권유하지 않음. 실제 계약은행 약정 확인이 우선. 원문은 외부 인용·배포 시 사전 동의를 요구하므로 원본 및 발췌 보고서를 공개 저장소에 포함하지 않음.",
+      "selection_reason": "공식 선물환 고객매도 설명서 p.1-6의 설명 본문 전체를 검색 후보로 사용. p.5에서 p.6으로 이어지는 중도해지·정산 위험을 함께 보존하며 서명 확인란 p.7은 제외. 신규 가입·자동 연장·타행 계약 변경을 권유하지 않고 실제 계약은행 약정을 우선 확인. 원문 p.6은 인용·제3자 배포에 사전 동의를 요구하므로 원본·Chroma·발췌 및 요약 보고서를 공개 저장소에 포함하지 않음.",
       "scenario_codes": [
         "FX_FORWARD_MATURITY"
       ],
       "trade_directions": [
         "EXPORT"
       ],
-      "include_pages": [
-        3,
-        4,
-        5
-      ],
-      "sections": [
-        {
-          "section_id": "settlement",
-          "topic": "FX_SETTLEMENT",
-          "page": 3,
-          "start_anchor": "미리 정한 약정환율",
-          "end_anchor": "1. 거래 조건"
-        },
-        {
-          "section_id": "market-risk",
-          "topic": "FX_RISK",
-          "page": 4,
-          "start_anchor": "② 만기 시점의 시장환율이",
-          "end_anchor": "위 예시 거래에서 만약 만기에 시장환율이 상승하여"
-        },
-        {
-          "section_id": "early-closeout",
-          "topic": "FX_CLOSEOUT",
-          "page": 5,
-          "start_anchor": "• 이 상품을 거래한 후 만기 이전에 중도해지",
-          "end_anchor": "• 중도해지에 따른 정산금액"
-        }
-      ]
+      "index_mode": "pages",
+      "include_pages": [1, 2, 3, 4, 5, 6],
+      "sections": []
     },
     {
       "product_id": "HSBC-EXPORT-RECEIVABLE-AGREEMENT",
-      "canonical_name": "수출채권 매입 선결 조건·환매 의무 확인 정보",
+      "canonical_name": "수출채권할인 기본 계약의 매입 조건·비용·환매 의무 확인 정보",
       "bank_name": "HSBC은행 서울지점",
       "source_file": "hsbc_export_receivables_agreement.pdf",
       "source_url": "https://www.hsbc.co.kr/-/media/korea/attachments/korea-kr/cmb-agreement/biz_agreement_036_kr.pdf",
@@ -155,7 +80,7 @@
       "reviewed_sha256": "597013a35071ebfda391678479504ec1ead656e70965f48c63f251fef1e6ff09",
       "review_status": "REVIEWED",
       "enabled": true,
-      "selection_reason": "공식 수출채권매입거래약정서의 매입 선결 조건·환매 의무·제출 서류 본문만 검색. 확인된 수출채권이 있을 때 공급자 지급 준비에 관한 참고자료로 연결하며 비소구·승인·개별 계약 적용을 단정하지 않음.",
+      "selection_reason": "공식 수출채권할인 기본 계약(공식 목록명 수출채권매입거래약정서)의 p.2-9 계약 본문 전체를 검색. 자체 할인수수료·조정수수료 정의, 은행 수락·한도·선결 요건, 양도·서류·환매 의무를 함께 보존. 표지 p.1 및 기입용 견본 양식·양도채권 목록 p.10-13은 제외. 사용자가 수출채권 보유를 입력한 EXPORT 거래에서만 참고자료로 연결하며 보유 사실 검증·비소구·승인·개별 계약 적용을 단정하지 않음. source_date는 원문 하단 외환 017-03 (2024-07-31)에 근거.",
       "scenario_codes": [
         "SUPPLIER_PAYMENT"
       ],
@@ -163,34 +88,9 @@
         "EXPORT"
       ],
       "requires_export_receivable": true,
-      "sections": [
-        {
-          "section_id": "purchase-conditions",
-          "topic": "RECEIVABLE_TERMS",
-          "page": 4,
-          "start_anchor": "2.03 은행은",
-          "end_anchor": "2.04 결제일이"
-        },
-        {
-          "section_id": "repurchase",
-          "topic": "RECEIVABLE_RECOURSE",
-          "page": 5,
-          "start_anchor": "3.01 아래의 각호",
-          "end_anchor": "3.02 본 계약"
-        },
-        {
-          "section_id": "documents",
-          "topic": "RECEIVABLE_DOCUMENTS",
-          "page": 7,
-          "start_anchor": "5조 선결 요건",
-          "end_anchor": "6조 계약의 해지"
-        }
-      ],
-      "include_pages": [
-        4,
-        5,
-        7
-      ]
+      "index_mode": "pages",
+      "sections": [],
+      "include_pages": [2, 3, 4, 5, 6, 7, 8, 9]
     },
     {
       "product_id": "KB-GENERAL-WORKING-CAPITAL",

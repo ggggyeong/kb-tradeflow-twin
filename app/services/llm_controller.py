@@ -16,8 +16,8 @@ class LLMError(RuntimeError):
 class LLMSettings(BaseModel):
     model: Literal["gpt-5-nano"] = "gpt-5-nano"
     service_tier: Literal["flex", "default"] = "flex"
-    max_output_tokens: int = Field(default=1200, ge=256, le=2000)
-    max_calls: int = Field(default=12, ge=1, le=16)
+    max_output_tokens: int = Field(default=6000, ge=256, le=6000)
+    max_calls: int = Field(default=20, ge=1, le=20)
     timeout_seconds: float = Field(default=90, ge=1, le=180)
 
     @classmethod
@@ -31,8 +31,8 @@ class LLMSettings(BaseModel):
             {
                 "model": os.getenv("OPENAI_MODEL", "gpt-5-nano"),
                 "service_tier": os.getenv("OPENAI_SERVICE_TIER", "flex"),
-                "max_output_tokens": os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "1200"),
-                "max_calls": os.getenv("OPENAI_MAX_CALLS", "12"),
+                "max_output_tokens": os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "6000"),
+                "max_calls": os.getenv("OPENAI_MAX_CALLS", "20"),
                 "timeout_seconds": os.getenv("OPENAI_TIMEOUT_SECONDS", "90"),
             }
         )
@@ -115,18 +115,38 @@ class OpenAIToolCallingModel:
                 # Extraction and grounded writing need more care than a forced
                 # zero-argument tool call. Keep the same nano model and token cap.
                 reasoning={
-                    "effort": "low"
-                    if forced_tool in {"validate_fields", "submit_financial_review"}
+                    "effort": "high"
+                    if forced_tool in {"choose_financial_evidence", "explain_financial_evidence"}
+                    else "low"
+                    if forced_tool == "validate_fields"
                     else "minimal"
                 },
                 max_output_tokens=self.settings.max_output_tokens,
             )
         except Exception as exc:
             # Do not leak API key, request contents or provider error payloads.
+            error_type = type(exc).__name__
+            safe_type = (
+                error_type
+                if error_type
+                in {
+                    "APITimeoutError",
+                    "APIConnectionError",
+                    "AuthenticationError",
+                    "PermissionDeniedError",
+                    "RateLimitError",
+                    "BadRequestError",
+                    "InternalServerError",
+                }
+                else "APIError"
+            )
             raise LLMError(
-                "LLM 호출 실패: 키·모델 접근 권한·Flex 가용성·시간 제한을 확인해 주세요."
+                f"LLM 호출 실패 ({safe_type}): 키·모델 접근 권한·Flex 가용성·시간 제한을 확인해 주세요."
             ) from exc
         if response.status != "completed":
+            details = getattr(response, "incomplete_details", None)
+            if getattr(details, "reason", None) == "max_output_tokens":
+                raise LLMError("LLM 출력 토큰 상한으로 응답이 완료되지 않았습니다.")
             raise LLMError(
                 "LLM 응답이 완료되지 않았습니다. 출력 제한 또는 응답 상태를 확인해 주세요."
             )

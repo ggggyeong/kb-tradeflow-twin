@@ -10,7 +10,7 @@ from app.schemas.portfolio import PortfolioDocumentResult
 from app.services.financial_retrieval import FinancialRetrieval
 from app.services.portfolio_pipeline import PortfolioPipeline
 from tests.helpers import FULL_PLAN, ScriptedModel
-from tests.unit.test_finance_advisor import FakeStore, catalog, request, submission
+from tests.unit.test_finance_advisor import FakeStore, catalog, explanation, request, submission
 
 
 class StubDocumentAgent:
@@ -35,6 +35,8 @@ def test_supervised_graph_returns_cited_product_and_pdf(tmp_path: Path) -> None:
             "compare_financial_dates",
             "search_financial_documents",
             submission(),
+            explanation(),
+            explanation(),
             "generate_report",
         ]
     )
@@ -51,7 +53,7 @@ def test_supervised_graph_returns_cited_product_and_pdf(tmp_path: Path) -> None:
     result = pipeline.result(build_portfolio_graph(pipeline).invoke({"request": req.model_dump()}))
     assert result.status == "SUCCESS"
     assert result.trace[0] == "prepare" and result.trace[-1] == "finalize"
-    assert result.llm_calls == 7
+    assert result.llm_calls == 9
     assert all(a.status == "SUCCESS" for a in result.tool_audit)
     assert result.product_options[0].citations[0].page == 2
     assert result.report_path and Path(result.report_path).is_file()
@@ -113,6 +115,8 @@ def test_all_three_agents_with_real_chroma_and_mock_llm(tmp_path: Path) -> None:
             "compare_financial_dates",
             "search_financial_documents",
             submission(),
+            explanation(),
+            explanation(),
             "generate_report",
         ]
     )
@@ -130,6 +134,6 @@ def test_all_three_agents_with_real_chroma_and_mock_llm(tmp_path: Path) -> None:
     assert result.documents[0].fields["etd"] == "2026-09-18"
     assert result.conflicts[0].status == "CONFLICT"
     assert result.product_options[0].citations[0].chunk_id == "test-c1"
-    assert result.llm_calls == 9 and not fake.actions
+    assert result.llm_calls == 11 and not fake.actions
     assert result.report_path and Path(result.report_path).is_file()
     assert "2026-09-18" in "".join(p.extract_text() for p in PdfReader(result.report_path).pages)

@@ -29,34 +29,30 @@ class GroundedScriptedModel(ScriptedModel):
     """Only the final fixture reply is assembled from actual search IDs, never made up."""
 
     def call(self, **kwargs: Any) -> ModelCall:
-        if kwargs.get("forced_tool") == "submit_financial_review":
-            observation = json.loads(kwargs["messages"][-1]["output"])
-            selected = {}
-            for hit in observation["evidence"]:
-                selected.setdefault(hit["event_id"], hit)
+        if kwargs.get("forced_tool") == "choose_financial_evidence":
+            observation = json.loads(kwargs["messages"][-1]["content"])
             reply = (
-                "submit_financial_review",
+                "choose_financial_evidence",
                 {
-                    "options": [
-                        {
-                            "event_id": event_id,
-                            "product_id": hit["product_id"],
-                            "supporting_quote": hit["excerpt"][:120],
-                            "citation_ids": [
-                                item["citation_id"]
-                                for item in observation["evidence"]
-                                if item["event_id"] == event_id
-                                and item["product_id"] == hit["product_id"]
-                            ],
-                        }
-                        for event_id, hit in selected.items()
-                    ],
-                    "warnings": [
-                        "이 보고서는 실제 OCR·ChromaDB와 모의 LLM 응답을 연결한 검증 결과입니다."
-                    ],
+                    "selections": {
+                        question["slot_id"]: question["evidence_ids"][0]
+                        if question["evidence_ids"]
+                        else None
+                        for question in observation["questions"]
+                    },
                 },
             )
             self.actions.insert(0, reply)
+        elif kwargs.get("forced_tool") == "explain_financial_evidence":
+            observation = json.loads(kwargs["messages"][-1]["content"])
+            assert set(observation) == {"question", "source_text"}
+            self.actions.insert(
+                0,
+                (
+                    "explain_financial_evidence",
+                    {"text": "모의 검증 설명: 실제 검색 본문에서 해당 조건을 확인해야 합니다."},
+                ),
+            )
         return super().call(**kwargs)
 
 
@@ -106,7 +102,7 @@ def test_real_local_pipeline_uses_excel_ocr_e5_chroma_and_report() -> None:
     assert {o.event_id for o in result.product_options} == {"DEMO-LOAN", "DEMO-FX", "DEMO-PAY"}
     assert result.receipt_resolution and result.receipt_resolution.document_links_verified
     assert any(d.ocr_backend == "rapidocr_onnx" for d in result.documents)
-    assert result.status != "FAILED" and result.llm_calls == 10
+    assert result.status != "FAILED" and result.llm_calls == 20
     assert not fake.actions
     for option in result.product_options:
         assert option.financial_institution

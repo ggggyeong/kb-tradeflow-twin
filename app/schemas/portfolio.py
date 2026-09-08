@@ -122,6 +122,18 @@ class PortfolioCitation(BaseModel):
     chunk_id: str | None = None
     topic: str | None = None
     section_id: str | None = None
+    citation_id: str | None = None
+    source_url: str | None = None
+
+
+class PortfolioExplanationPoint(BaseModel):
+    """A generated explanation with traceable supporting text, not an approval."""
+
+    text: str = Field(min_length=10, max_length=220)
+    supporting_quote: str = Field(min_length=12, max_length=1200)
+    citations: list[PortfolioCitation] = Field(min_length=1, max_length=1)
+    slot_id: str | None = None
+    question: str | None = None
 
 
 class PortfolioProductOption(BaseModel):
@@ -134,6 +146,7 @@ class PortfolioProductOption(BaseModel):
     event_id: str | None = None
     why_consider: str
     supporting_quote: str = ""
+    explanation_points: list[PortfolioExplanationPoint] = Field(default_factory=list, max_length=3)
     conditions_to_check: list[str] = Field(default_factory=list)
     citations: list[PortfolioCitation] = Field(min_length=1)
 
@@ -162,6 +175,7 @@ class PortfolioReportPayload(BaseModel):
     product_options: list[PortfolioProductOption]
     service_cards: list[PortfolioServiceCard] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    retrieval_trace: list[dict[str, Any]] = Field(default_factory=list)
     source_notice: str = (
         "금융상품은 검토 가능한 정보이며 실제 이용 가능 여부, 한도, 금리와 승인은 "
         "최신 약관 및 금융기관 심사를 통해 확인해야 합니다."
@@ -186,3 +200,4 @@ class PortfolioRunResult(BaseModel):
     output_tokens: int = 0
     warnings: list[str] = Field(default_factory=list)
     trace: list[str] = Field(default_factory=list)
+    retrieval_trace: list[dict[str, Any]] = Field(default_factory=list)

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from importlib import import_module
@@ -11,12 +13,14 @@ from typing import Any
 
 from app.services.product_catalog import ProductCatalog
 
-VECTOR_MANIFEST_SCHEMA = "product-vector-manifest-v3"
+VECTOR_MANIFEST_SCHEMA = "product-vector-manifest-v7"
 DEFAULT_COLLECTION_NAME = "trade_finance_evidence"
 DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
 DEFAULT_EMBEDDING_DIMENSION = 384
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 100
+# E5 has a 512-token limit. Leave headroom for prefixes and special tokens.
+DEFAULT_MAX_PASSAGE_TOKENS = 480
 DEFAULT_MANIFEST_NAME = "product_vector_manifest.json"
 SCENARIO_CODES = ("WORKING_CAPITAL_LOAN_MATURITY", "FX_FORWARD_MATURITY", "SUPPLIER_PAYMENT")
 DEFAULT_PORTFOLIO_PRODUCT_IDS = (
@@ -103,6 +107,7 @@ def _select_products(
             "reviewed_on": item["reviewed_on"],
             "reviewed_sha256": item["reviewed_sha256"],
             "include_pages": item["include_pages"],
+            "index_mode": item["index_mode"],
             "sections": item["sections"],
         }
     return ordered, by_source
@@ -119,19 +124,90 @@ def split_product_page(
     *,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    token_counter: Callable[[str], int] | None = None,
+    max_tokens: int = DEFAULT_MAX_PASSAGE_TOKENS,
 ) -> tuple[str, ...]:
     if chunk_size < 64 or not 0 <= chunk_overlap < chunk_size:
         raise ValueError("Use chunk_size >= 64 and 0 <= overlap < chunk_size")
-    lines = [" ".join(line.split()) for line in text.replace("\r\n", "\n").split("\n")]
-    text = "\n".join(line for line in lines if line).strip()
+    if max_tokens < 32:
+        raise ValueError("max_tokens must be at least 32")
+    text = text.replace("\r\n", "\n")
+    # These are document structure markers, not hand-picked answer keywords.
+    # Keep a heading with its following bullets but do not embed unrelated
+    # sections together just to fill the character budget.
+    text = re.sub(r"\s*(?=[■▣])", "\n\n", text)
+    text = re.sub(r"(?m)^\s*((?:제\s*)?\d+\s*조(?:\s|[.:]))", r"\n\n\1", text)
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    text = "\n".join(lines).strip()
     if not text:
         return ()
-    step = chunk_size - chunk_overlap
-    return tuple(
-        text[start : start + chunk_size].strip()
-        for start in range(0, len(text), step)
-        if text[start : start + chunk_size].strip()
-    )
+
+    def fits(value: str) -> bool:
+        return len(value) <= chunk_size and (
+            token_counter is None or token_counter(value) <= max_tokens
+        )
+
+    # PDF line breaks often occur inside sentences. Prefer complete paragraphs,
+    # then complete sentences; only an oversized unit is cut at a word boundary.
+    paragraphs: list[str] = []
+    for raw_paragraph in re.split(r"\n\s*\n", text):
+        paragraph = " ".join(raw_paragraph.split())
+        if not paragraph:
+            continue
+        # Blank lines in PDFs do not make (a)/(1) or bullet items independent
+        # clauses. Keep their governing sentence and conditions together.
+        if paragraphs and re.match(r"^(?:\([0-9A-Za-z]+\)|[•·●])", paragraph):
+            paragraphs[-1] += " " + paragraph
+        else:
+            paragraphs.append(paragraph)
+    units: list[str] = []
+    for paragraph in paragraphs:
+        parts = [paragraph] if fits(paragraph) else re.split(r"(?<=[.!?。])\s+", paragraph)
+        for part in parts:
+            remaining = part.strip()
+            while remaining and not fits(remaining):
+                lo, hi = 1, min(chunk_size, len(remaining))
+                while lo < hi:
+                    middle = (lo + hi + 1) // 2
+                    if fits(remaining[:middle]):
+                        lo = middle
+                    else:
+                        hi = middle - 1
+                if not fits(remaining[:lo]):
+                    raise ProductVectorError("A character exceeds the passage token budget")
+                boundary = remaining.rfind(" ", 0, lo + 1)
+                cut = boundary if boundary >= lo // 2 else lo
+                units.append(remaining[:cut].strip())
+                remaining = remaining[cut:].strip()
+            if remaining:
+                units.append(remaining)
+        units.append("")  # Hard paragraph/section boundary; no cross-section overlap.
+
+    chunks: list[str] = []
+    current: list[str] = []
+    for unit in units:
+        if not unit:
+            if current:
+                chunks.append(" ".join(current))
+                current = []
+            continue
+        proposed = " ".join([*current, unit])
+        if current and not fits(proposed):
+            chunks.append(" ".join(current))
+            # Repeat whole trailing units, never a dangling character slice.
+            overlap: list[str] = []
+            for previous in reversed(current):
+                candidate = [previous, *overlap]
+                if len(" ".join(candidate)) > chunk_overlap:
+                    break
+                overlap = candidate
+            while overlap and not fits(" ".join([*overlap, unit])):
+                overlap.pop(0)
+            current = overlap
+        current.append(unit)
+    if current:
+        chunks.append(" ".join(current))
+    return tuple(dict.fromkeys(chunks))
 
 
 def extract_reviewed_section(text: str, start_anchor: str, end_anchor: str) -> str:
@@ -154,6 +230,7 @@ def load_product_vector_corpus(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
     include_product_ids: Sequence[str] | None = None,
+    token_counter: Callable[[str], int] | None = None,
 ) -> ProductCorpus:
     try:
         from pypdf import PdfReader
@@ -180,7 +257,7 @@ def load_product_vector_corpus(
         selected_pages = set(product["include_pages"] or range(1, len(native_pages) + 1))
         if any(page > len(native_pages) for page in selected_pages):
             raise ProductVectorError(f"Catalog page outside PDF: {source}")
-        if any(not text for text in native_pages):
+        if any(not native_pages[p - 1] for p in selected_pages):
             if ocr_backend is None:
                 raise ProductVectorError(
                     f"OCR backend is required for image-only product PDF: {source}"
@@ -195,7 +272,11 @@ def load_product_vector_corpus(
         ):
             if page not in selected_pages:
                 continue
-            sections = [s for s in product["sections"] if s["page"] == page]
+            sections = (
+                [s for s in product["sections"] if s["page"] == page]
+                if product["index_mode"] == "sections"
+                else []
+            )
             spans = (
                 [
                     (
@@ -214,7 +295,12 @@ def load_product_vector_corpus(
                 (section_id, topic, index, document)
                 for section_id, topic, span in spans
                 for index, document in enumerate(
-                    split_product_page(span, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                    split_product_page(
+                        span,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                        token_counter=token_counter,
+                    )
                 )
             ]
             if not page_chunks:
@@ -266,7 +352,7 @@ class MultilingualE5Embedding:
     ) -> None:
         self.model_name, self.dimension, self._model = model_name, dimension, model
 
-    def _encode(self, texts: Sequence[str]) -> list[list[float]]:
+    def _load_model(self) -> Any:
         if self._model is None:
             try:
                 sentence_transformers = import_module("sentence_transformers")
@@ -277,13 +363,31 @@ class MultilingualE5Embedding:
             self._model = sentence_transformers.SentenceTransformer(
                 self.model_name, device="cpu", cache_folder=str(KNOWLEDGE_DIR / "models" / "e5")
             )
-        dimension_getter = getattr(self._model, "get_embedding_dimension", None) or getattr(
-            self._model, "get_sentence_embedding_dimension", lambda: None
+        return self._model
+
+    def count_tokens(self, text: str) -> int:
+        model = self._load_model()
+        tokenizer = getattr(model, "tokenizer", None)
+        if tokenizer is None:
+            raise ProductVectorError("The E5 tokenizer is required for safe passage splitting")
+        return len(tokenizer.encode(f"passage: {text.strip()}", add_special_tokens=True))
+
+    def _encode(self, texts: Sequence[str]) -> list[list[float]]:
+        model = self._load_model()
+        tokenizer = getattr(model, "tokenizer", None)
+        if tokenizer is not None:
+            limit = min(int(getattr(model, "max_seq_length", 512)), 512)
+            if any(len(tokenizer.encode(t, add_special_tokens=True)) > limit for t in texts):
+                raise ProductVectorError(
+                    "Embedding input exceeds the E5 token limit; rebuild smaller chunks"
+                )
+        dimension_getter = getattr(model, "get_embedding_dimension", None) or getattr(
+            model, "get_sentence_embedding_dimension", lambda: None
         )
         actual = dimension_getter() if callable(dimension_getter) else None
         if actual is not None and int(actual) != self.dimension:
             raise ProductVectorError(f"Expected embedding dimension {self.dimension}, got {actual}")
-        encoded = self._model.encode(
+        encoded = model.encode(
             list(texts),
             normalize_embeddings=True,
             convert_to_numpy=True,
@@ -310,7 +414,7 @@ class ChromaProductVectorStore:
         *,
         persist_directory: Path,
         embedding_provider: Any | None = None,
-        collection_name: str = DEFAULT_COLLECTION_NAME,
+        collection_name: str | None = None,
         collection: Any | None = None,
         client: Any | None = None,
         validate_manifest: bool = True,
@@ -320,7 +424,10 @@ class ChromaProductVectorStore:
         if validate_manifest and not self.manifest_path.is_file():
             raise ProductVectorError("Product index is not built or is incomplete")
         self.persist_directory.mkdir(parents=True, exist_ok=True)
-        self.collection_name = collection_name
+        if collection_name is None and validate_manifest:
+            collection_name = str(_read_json(self.manifest_path)["collection_name"])
+        self.collection_name = collection_name or DEFAULT_COLLECTION_NAME
+        self.previous_collection_name: str | None = None
         self.embedding_provider = embedding_provider or MultilingualE5Embedding()
         if collection is None:
             if client is None:
@@ -330,14 +437,22 @@ class ChromaProductVectorStore:
                     raise ProductVectorError("Install chromadb for product RAG") from exc
                 client = chromadb.PersistentClient(path=str(self.persist_directory))
             collection = client.get_or_create_collection(
-                name=collection_name,
+                name=self.collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
         self.collection = collection
+        self.client = client
+        self.last_search_trace: dict[str, Any] = {}
         if validate_manifest:
             self.validate_manifest()
 
-    def replace(self, chunks: Sequence[ProductChunk], batch_size: int = 128) -> None:
+    def replace(
+        self,
+        chunks: Sequence[ProductChunk],
+        batch_size: int = 128,
+        *,
+        fresh_collection: bool = False,
+    ) -> None:
         if batch_size < 1 or not chunks:
             raise ProductVectorError("Non-empty chunks and positive batch_size are required")
         # Compute all embeddings before touching the existing collection.
@@ -346,11 +461,27 @@ class ChromaProductVectorStore:
             batch = chunks[start : start + batch_size]
             documents = [chunk.document for chunk in batch]
             batches.append((batch, documents, self.embedding_provider.embed_documents(documents)))
-        old_ids = self.collection.get(include=[]).get("ids", [])
+        if fresh_collection:
+            if self.client is None:
+                raise ProductVectorError("Fresh collection rebuild requires a Chroma client")
+            # Never mutate the active ANN index during an offline rebuild.
+            # Repeated upsert/delete was observed to leave readable rows absent
+            # from ANN query results. A new generation avoids that failure mode.
+            if self.manifest_path.is_file():
+                self.previous_collection_name = str(
+                    _read_json(self.manifest_path)["collection_name"]
+                )
+            new_name = f"{self.collection_name}-build-{uuid.uuid4().hex[:12]}"
+            self.collection = self.client.create_collection(
+                name=new_name, metadata={"hnsw:space": "cosine"}
+            )
+            self.collection_name = new_name
+        old_ids = [] if fresh_collection else self.collection.get(include=[]).get("ids", [])
         if old_ids and isinstance(old_ids[0], list):
             old_ids = [value for group in old_ids for value in group]
         # An interrupted rebuild must not be mistaken for a validated index.
-        self.manifest_path.unlink(missing_ok=True)
+        if not fresh_collection:
+            self.manifest_path.unlink(missing_ok=True)
         for batch, documents, embeddings in batches:
             self.collection.upsert(
                 ids=[chunk.chunk_id for chunk in batch],
@@ -361,6 +492,26 @@ class ChromaProductVectorStore:
         stale = set(old_ids) - {chunk.chunk_id for chunk in chunks}
         if stale:
             self.collection.delete(ids=sorted(stale))
+        if fresh_collection:
+            # Validate ANN lookup, not just row count: every indexed passage
+            # must be retrievable by its own vector inside its source scope.
+            for batch, documents, embeddings in batches:
+                groups: dict[str, list[int]] = {}
+                for index, chunk in enumerate(batch):
+                    groups.setdefault(str(chunk.metadata["product_id"]), []).append(index)
+                for product_id, indices in groups.items():
+                    probe = self.collection.query(
+                        query_embeddings=[embeddings[index] for index in indices],
+                        n_results=1,
+                        where={"product_id": product_id},
+                        include=["documents"],
+                    )
+                    found = probe.get("documents", [])
+                    if len(found) != len(indices) or any(
+                        not matches or documents[index] not in matches
+                        for index, matches in zip(indices, found, strict=True)
+                    ):
+                        raise ProductVectorError("Fresh ANN index failed passage self-retrieval")
 
     def search(
         self,
@@ -370,6 +521,8 @@ class ChromaProductVectorStore:
         top_k: int = 5,
         topics: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
+        if not query.strip():
+            raise ValueError("query must not be empty")
         scenarios = tuple(dict.fromkeys(scenario_codes))
         if not scenarios or set(scenarios) - _SCENARIOS:
             raise ValueError("Unsupported scenario_codes")
@@ -396,9 +549,35 @@ class ChromaProductVectorStore:
                 raise ValueError("topics must not be empty")
             filters = where.get("$and", [where])
             where = {"$and": [*filters, {"topic": {"$in": list(dict.fromkeys(topics))}}]}
+        candidates = self.collection.get(where=where, include=["metadatas"])
+        candidate_ids = candidates.get("ids", [])
+        candidate_metadata = candidates.get("metadatas") or []
+        unique_candidates = {
+            (
+                item.get("product_id"),
+                item.get("source_sha256"),
+                item.get("page"),
+                item.get("section_id"),
+                item.get("chunk_index"),
+            )
+            for item in candidate_metadata
+        }
+        self.last_search_trace = {
+            "query": query,
+            "where": where,
+            "candidate_count": len(candidate_ids),
+            "unique_candidate_count": len(unique_candidates)
+            if candidate_metadata
+            else len(candidate_ids),
+            "top_k": top_k,
+            "returned_count": 0,
+            "retrieved_chunk_ids": [],
+        }
+        if not candidate_ids:
+            return []
         raw = self.collection.query(
             query_embeddings=[self.embedding_provider.embed_query(query)],
-            n_results=top_k * max(2, len(scenarios)),
+            n_results=min(len(candidate_ids), top_k * max(2, len(scenarios))),
             where=where,
             include=["documents", "metadatas", "distances"],
         )
@@ -437,6 +616,10 @@ class ChromaProductVectorStore:
             )
             if len(results) == top_k:
                 break
+        self.last_search_trace.update(
+            returned_count=len(results),
+            retrieved_chunk_ids=[result["chunk_id"] for result in results],
+        )
         return results
 
     def validate_manifest(
@@ -487,6 +670,7 @@ def build_index_from_current_assets(
     pdf_directory = Path(pdf_directory or root / "data" / "knowledge" / "products")
     catalog_path = Path(catalog_path or root / "data" / "knowledge" / "product_catalog.json")
     persist_directory = Path(persist_directory or root / "data" / "knowledge" / "chroma_products")
+    provider = embedding_provider or MultilingualE5Embedding()
     corpus = load_product_vector_corpus(
         pdf_directory=pdf_directory,
         catalog_path=catalog_path,
@@ -494,8 +678,8 @@ def build_index_from_current_assets(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         include_product_ids=include_product_ids,
+        token_counter=getattr(provider, "count_tokens", None),
     )
-    provider = embedding_provider or MultilingualE5Embedding()
     store = ChromaProductVectorStore(
         persist_directory=persist_directory,
         embedding_provider=provider,
@@ -504,24 +688,49 @@ def build_index_from_current_assets(
         client=client,
         validate_manifest=False,
     )
-    store.replace(corpus.chunks)
+    store.replace(corpus.chunks, fresh_collection=collection is None)
     manifest = {
         "schema_version": VECTOR_MANIFEST_SCHEMA,
-        "collection_name": collection_name,
+        "collection_name": store.collection_name,
+        "previous_collection_name": store.previous_collection_name,
+        "rebuild_strategy": "fresh-collection-atomic-manifest-v1",
         "embedding_model": provider.model_name,
         "embedding_dimension": provider.dimension,
         "chunk_size": chunk_size,
         "chunk_overlap": chunk_overlap,
+        "chunk_strategy": "heading-clause-list-token-budget-v3",
+        "max_passage_tokens": DEFAULT_MAX_PASSAGE_TOKENS,
         "product_ids": list(corpus.product_ids),
         "product_count": len(corpus.product_ids),
         "record_count": len(corpus.chunks),
+        "unique_chunk_count": len(
+            {
+                (
+                    chunk.metadata["product_id"],
+                    chunk.metadata["source_sha256"],
+                    chunk.metadata["page"],
+                    chunk.metadata["section_id"],
+                    chunk.metadata["chunk_index"],
+                )
+                for chunk in corpus.chunks
+            }
+        ),
         "corpus_fingerprint": corpus.corpus_fingerprint,
         "source_hashes": corpus.source_hashes,
         "catalog_sha256": corpus.catalog_sha256,
     }
-    store.manifest_path.write_text(
+    # Validate before switching readers to this generation. Failed builds leave
+    # the old manifest and old collection available; old collections are retained.
+    if store.collection.count() != len(corpus.chunks):
+        raise ProductVectorError("Fresh collection record count is incomplete")
+    actual_ids = store.collection.get(include=[]).get("ids", [])
+    if _hash_text("\n".join(sorted(actual_ids))) != corpus.corpus_fingerprint:
+        raise ProductVectorError("Fresh collection IDs do not match the corpus")
+    manifest_staging = store.manifest_path.with_name(f".manifest-{uuid.uuid4().hex}.json")
+    manifest_staging.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    manifest_staging.replace(store.manifest_path)
     store.validate_manifest(pdf_directory=pdf_directory, catalog_path=catalog_path)
     return manifest

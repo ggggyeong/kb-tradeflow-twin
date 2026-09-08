@@ -1,13 +1,20 @@
 {
-  "scope": "One synthetic export transaction; not a financial accuracy benchmark",
-  "run_id": "20260908T003526503773Z",
+  "scope": "One synthetic export transaction; development verification, not a financial accuracy benchmark",
+  "verified_on": "2026-09-08",
+  "run_id": "20260908T063323972443Z",
+  "outcome": "PARTIAL_RESULT",
   "model": "gpt-5-nano",
   "served_service_tiers": [
     "flex"
   ],
-  "llm_calls": 10,
-  "input_tokens": 14294,
-  "output_tokens": 2929,
+  "financial_reasoning_effort": "high",
+  "max_output_tokens_per_call": 6000,
+  "attempted_llm_calls": 20,
+  "completed_llm_calls": 19,
+  "failed_llm_calls": 1,
+  "input_tokens_from_completed_calls": 27669,
+  "output_tokens_from_completed_calls": 29158,
+  "usage_note": "Incomplete call usage is not included; these figures are not a billing total.",
   "status": "REVIEW_REQUIRED",
   "checks": {
     "all_documents_analyzed": true,
@@ -16,42 +23,68 @@
     "all_cases_have_evidence": true,
     "three_service_cards": true,
     "quotes_match_sources": true,
-    "reviewed_topics_only": true,
+    "page_provenance_present": true,
+    "generated_explanations_present": true,
+    "all_key_questions_answered": false,
+    "real_retrieval_choices": true,
     "scanned_invoice_ocr": true,
     "report_created": true,
     "not_failed": true
   },
-  "indexed_records": 17,
-  "source_count": 4,
-  "services": [
-    {
-      "event_id": "DEMO-LOAN",
-      "service_code": "LOAN_REPAYMENT_REVIEW",
-      "status": "INFORMATION",
-      "source_ids": [
-        "SHINHAN-WORKING-CAPITAL-GUIDE"
-      ]
-    },
-    {
-      "event_id": "DEMO-FX",
-      "service_code": "FX_SETTLEMENT_REVIEW",
-      "status": "INFORMATION",
-      "source_ids": [
-        "BOC-FX-FORWARD-SELL-GUIDE"
-      ]
-    },
+  "corpus": {
+    "manifest_schema": "product-vector-manifest-v7",
+    "source_count": 3,
+    "reviewed_page_count": 24,
+    "unique_chunk_count": 193,
+    "indexed_records": 274
+  },
+  "retrieval": {
+    "searched_questions": 11,
+    "top_k": 3,
+    "runtime_page_filter": false,
+    "runtime_topic_filter": false,
+    "expected_answer_count": 8,
+    "returned_answer_count": 7
+  },
+  "withheld_answers": [
     {
       "event_id": "DEMO-PAY",
-      "service_code": "SUPPLIER_FUNDING_REVIEW",
-      "status": "INFORMATION",
-      "source_ids": [
-        "SHINHAN-WORKING-CAPITAL-GUIDE",
-        "HSBC-EXPORT-RECEIVABLE-GUIDE",
-        "HSBC-EXPORT-RECEIVABLE-AGREEMENT"
-      ]
+      "slot_id": "receivable_requirements",
+      "reason": "Explanation response was incomplete at the output-token cap; no draft or substitute was published."
     }
   ],
-  "warnings": [
-    "텍스트 PDF의 위치 정보는 읽기 순서 기반의 근사값입니다. 정확한 문서 위치는 원본 페이지와 함께 확인해 주세요."
+  "development_content_review": {
+    "reviewer_type": "AI development tools; not a human financial expert",
+    "directly_supported_and_relevant_answers": 5,
+    "source_supported_but_indirect_answer": "unpaid_principal",
+    "scope_wording_caution": "receivable_repurchase: answer addresses nonpayment; do not read it as excluding other contractual repurchase grounds",
+    "accuracy_guaranteed": false
+  },
+  "automated_tests": {
+    "passed": 205,
+    "failed": 0,
+    "skipped": 0,
+    "local_ocr_and_vector_tests_included": true,
+    "llm_in_automated_tests": "scripted; separate from the live run",
+    "external_deprecation_warnings": 5
+  },
+  "static_checks": {
+    "ruff": "passed",
+    "mypy_app_files": 35
+  },
+  "report": {
+    "pages": 5,
+    "local_only": true,
+    "rendered_from_run_id": "20260908T063323972443Z",
+    "layout_refreshed_without_llm": true,
+    "generated_answers_modified_during_rendering": false,
+    "all_pages_visually_checked": true
+  },
+  "remaining_limitations": [
+    "A complete eight-answer live run has not been verified for this final revision.",
+    "Source identity checks do not establish semantic accuracy or customer eligibility.",
+    "Dates indicate a scheduling gap, not an actual funding deficit.",
+    "Native PDF field coordinates are approximate.",
+    "Bank originals, excerpts, vector data, logs and reports are local-only pending applicable usage permissions."
   ]
 }

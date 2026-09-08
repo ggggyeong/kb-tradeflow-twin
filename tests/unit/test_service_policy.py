@@ -7,17 +7,38 @@ from app.schemas.portfolio import PortfolioConflictResult
 from app.services.financial_retrieval import FinancialRetrieval
 from app.services.llm_controller import RunModel
 from app.services.product_vector_store import ProductVectorError, extract_reviewed_section
-from app.services.service_policy import POLICIES, build_service_cards
+from app.services.service_policy import POLICIES, build_service_cards, get_answer_slots
 from tests.helpers import ScriptedModel
 from tests.unit.test_finance_advisor import FakeStore, catalog, request, submission
 
 
-def test_three_policies_have_distinct_services_and_topics() -> None:
+def test_three_policies_have_information_questions_not_answer_locations() -> None:
     assert len({p.code for p in POLICIES.values()}) == 3
-    assert not set(POLICIES["WORKING_CAPITAL_LOAN_MATURITY"].topics) & set(
-        POLICIES["SUPPLIER_PAYMENT"].topics
+    questions = [q for p in POLICIES.values() for q in p.search_questions]
+    assert len({q.query_id for q in questions}) == len(questions)
+    assert all(".pdf" not in q.text and "페이지" not in q.text for q in questions)
+    assert all(
+        q.query_id.startswith("fx_") for q in POLICIES["FX_FORWARD_MATURITY"].search_questions
     )
-    assert all(t.startswith("FX_") for t in POLICIES["FX_FORWARD_MATURITY"].topics)
+    assert sum(q.receivables_only for q in questions) == 4
+
+
+def test_answer_slots_are_linked_to_search_questions_and_receivable_gate() -> None:
+    for scenario, policy in POLICIES.items():
+        query_ids = {q.query_id for q in policy.search_questions}
+        for confirmed in (False, True):
+            slots = get_answer_slots(scenario, export_receivable_confirmed=confirmed)
+            assert 1 <= len(slots) <= 3
+            assert len({s.slot_id for s in slots}) == len(slots)
+            assert all(set(s.query_ids) <= query_ids for s in slots)
+    plain = get_answer_slots("SUPPLIER_PAYMENT", export_receivable_confirmed=False)
+    verified = get_answer_slots("SUPPLIER_PAYMENT", export_receivable_confirmed=True)
+    assert {s.slot_id for s in plain} == {"funding_conditions", "funding_costs"}
+    assert {s.slot_id for s in verified} == {
+        "funding_conditions",
+        "receivable_requirements",
+        "receivable_repurchase",
+    }
 
 
 @pytest.mark.parametrize("status", ["CONFLICT", "NO_CONFLICT", "REVIEW_REQUIRED"])
@@ -34,22 +55,23 @@ def test_cards_keep_abstention_and_input_review_visible(status: Any) -> None:
     assert card.status == ("NO_CONFLICT" if status == "NO_CONFLICT" else "REVIEW_REQUIRED")
     assert bool(card.questions) == (status != "NO_CONFLICT")
     assert card.notices
+    if status == "CONFLICT":
+        assert not any("근거가 부족" in notice for notice in card.notices)
+        assert any("검색·생성·근거 대조" in notice for notice in card.notices)
 
 
-def test_source_quote_must_be_exact_not_generated() -> None:
+def test_only_retrieved_source_span_can_be_selected() -> None:
     fake = ScriptedModel(
         [
             "compare_financial_dates",
             "search_financial_documents",
-            submission(
-                supporting_quote="원문에 존재하지 않는 승인 보장 문장은 이 테스트에서 반드시 거부되어야 합니다."
-            ),
+            submission(evidence_id="invented-source-span"),
         ]
     )
     _, options, warnings = FinanceAdvisorAgent(
         retrieval=FinancialRetrieval(store=FakeStore(), catalog=catalog())
     ).run(request(), [], model=RunModel(fake, 12))
-    assert not options and any("원문과 일치하지" in w for w in warnings)
+    assert not options and any("근거 ID" in w for w in warnings)
 
 
 @pytest.mark.parametrize(

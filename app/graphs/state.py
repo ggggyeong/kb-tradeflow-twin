@@ -24,6 +24,7 @@ class PortfolioState(TypedDict, total=False):
     conflicts: list[PortfolioConflictResult]
     product_options: list[PortfolioProductOption]
     service_cards: list[PortfolioServiceCard]
+    retrieval_trace: list[dict[str, Any]]
     report_path: str
     status: str
     warnings: list[str]

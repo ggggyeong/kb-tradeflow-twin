@@ -147,6 +147,6 @@ def test_requests_do_not_share_runtime(tmp_path: Path) -> None:
 
 
 def test_default_budget_wins_over_graph_recursion_limit(tmp_path: Path) -> None:
-    result, fake = run([DOC_PLAN, *(["generate_report"] * 11)], tmp_path)
-    assert result.status == "FAILED" and result.llm_calls == 12
-    assert len(fake.requests) == 12
+    result, fake = run([DOC_PLAN, *(["generate_report"] * 19)], tmp_path)
+    assert result.status == "FAILED" and result.llm_calls == 20
+    assert len(fake.requests) == 20

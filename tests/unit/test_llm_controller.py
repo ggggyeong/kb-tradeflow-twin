@@ -71,7 +71,7 @@ def test_real_sdk_serializes_low_cost_function_call_without_network() -> None:
     assert payload["service_tier"] == "flex"
     assert payload["parallel_tool_calls"] is False
     assert payload["store"] is False
-    assert payload["max_output_tokens"] == 1200
+    assert payload["max_output_tokens"] == 6000
     assert payload["reasoning"] == {"effort": "minimal"}
     assert payload["tool_choice"] == "required"
     assert payload["tools"][0]["strict"] is True
@@ -163,6 +163,7 @@ def test_unavailable_flex_has_no_retry_or_standard_tier_fallback() -> None:
         call(OpenAIToolCallingModel(LLMSettings(), client=client))
     assert len(requests) == 1
     assert "sensitive" not in str(exc.value)
+    assert "RateLimitError" in str(exc.value)
 
 
 def test_missing_key_fails_before_constructing_client(monkeypatch: Any) -> None:
@@ -182,8 +183,17 @@ def test_production_client_has_no_hidden_retries(monkeypatch: Any) -> None:
         client.close()
 
 
-@pytest.mark.parametrize("tool_name", ["validate_fields", "submit_financial_review"])
-def test_interpretation_uses_low_reasoning_without_changing_model_or_tier(tool_name: str) -> None:
+@pytest.mark.parametrize(
+    ("tool_name", "effort"),
+    [
+        ("validate_fields", "low"),
+        ("choose_financial_evidence", "high"),
+        ("explain_financial_evidence", "high"),
+    ],
+)
+def test_interpretation_uses_more_reasoning_without_changing_model_or_tier(
+    tool_name: str, effort: str
+) -> None:
     captured = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -201,10 +211,10 @@ def test_interpretation_uses_low_reasoning_without_changing_model_or_tier(tool_n
             tools=[tool_definition("call_document_agent")],
             forced_tool=tool_name,
         )
-    assert captured[0]["reasoning"] == {"effort": "low"}
+    assert captured[0]["reasoning"] == {"effort": effort}
     assert captured[0]["model"] == "gpt-5-nano"
     assert captured[0]["service_tier"] == "flex"
-    assert captured[0]["max_output_tokens"] == 1200
+    assert captured[0]["max_output_tokens"] == 6000
 
 
 def test_live_example_log_excludes_response_items_and_reasoning(tmp_path: Any) -> None:
@@ -222,12 +232,53 @@ def test_live_example_log_excludes_response_items_and_reasoning(tmp_path: Any) -
     assert "test-reasoning" not in content
 
 
+def test_live_example_logs_failed_attempt_without_provider_details(tmp_path: Any) -> None:
+    from scripts.run_example import RecordedLiveModel
+
+    class FailingModel:
+        def call(self, **kwargs: Any) -> Any:
+            raise LLMError("LLM 출력 토큰 상한으로 응답이 완료되지 않았습니다.")
+
+    path = tmp_path / "calls.json"
+    recorded = RecordedLiveModel(LLMSettings(), path)
+    recorded.delegate = FailingModel()
+    with pytest.raises(LLMError):
+        recorded.call(instructions="private-context", messages=[], tools=[], forced_tool="test")
+    assert recorded.attempts == 1
+    assert recorded.records == []
+    assert not path.exists()
+    failures = json.loads((tmp_path / "calls-errors.json").read_text())
+    assert failures[0]["tool"] == "test"
+    assert failures[0]["attempt"] == 1
+    assert "private-context" not in json.dumps(failures)
+
+
+def test_output_limit_has_safe_specific_error() -> None:
+    transport = httpx2.MockTransport(
+        lambda _: httpx2.Response(
+            200,
+            json=response_body(
+                status="incomplete", incomplete_details={"reason": "max_output_tokens"}
+            ),
+        )
+    )
+    with (
+        OpenAI(
+            api_key="test-placeholder",
+            max_retries=0,
+            http_client=httpx2.Client(transport=transport),
+        ) as client,
+        pytest.raises(LLMError, match="출력 토큰 상한"),
+    ):
+        call(OpenAIToolCallingModel(LLMSettings(), client=client))
+
+
 @pytest.mark.parametrize(
     "settings",
     [
         {"model": "gpt-6-astra"},
-        {"max_calls": 20},
-        {"max_output_tokens": 5000},
+        {"max_calls": 21},
+        {"max_output_tokens": 6001},
         {"service_tier": "priority"},
     ],
 )
@@ -238,9 +289,11 @@ def test_more_expensive_or_unbounded_configuration_is_rejected(settings: dict[st
 
 def test_agent_schemas_are_strict_function_call_compatible() -> None:
     from app.agents.document_agent import DocumentSubmission
-    from app.agents.finance_advisor import FinancialSubmission
+    from app.agents.finance_advisor import EvidenceExplanation, selection_tool
     from app.schemas.orchestration import ExecutionPlan
+    from app.services.service_policy import get_answer_slots
     from app.tools.agent_tools import function_tool
+    from tests.unit.test_finance_advisor import evidence_hit
 
     def check(value: Any) -> None:
         if isinstance(value, dict):
@@ -253,5 +306,9 @@ def test_agent_schemas_are_strict_function_call_compatible() -> None:
             for nested in value:
                 check(nested)
 
-    for schema in (DocumentSubmission, FinancialSubmission, ExecutionPlan):
+    for schema in (DocumentSubmission, ExecutionPlan, EvidenceExplanation):
         check(function_tool("test", "test", schema)["parameters"])
+    slots = get_answer_slots("SUPPLIER_PAYMENT", export_receivable_confirmed=False)
+    # Finance uses a runtime schema with actual question keys and evidence enums.
+    check(selection_tool([evidence_hit()], slots)["parameters"])
+    check(selection_tool([], slots)["parameters"])

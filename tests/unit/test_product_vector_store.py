@@ -7,6 +7,7 @@ import sys
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ from app.services.product_vector_store import (
     ProductVectorError,
     build_index_from_current_assets,
     load_product_vector_corpus,
+    split_product_page,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -72,7 +74,15 @@ class FakeCollection:
         self.last_query: dict[str, Any] | None = None
 
     def get(self, **kwargs: Any) -> dict[str, Any]:
-        return {"ids": list(self.records)}
+        selected = [
+            (chunk_id, record)
+            for chunk_id, record in self.records.items()
+            if "where" not in kwargs or _matches(record["metadata"], kwargs["where"])
+        ]
+        return {
+            "ids": [chunk_id for chunk_id, _ in selected],
+            "metadatas": [record["metadata"] for _, record in selected],
+        }
 
     def delete(self, **kwargs: Any) -> None:
         for chunk_id in kwargs["ids"]:
@@ -323,3 +333,273 @@ def test_reading_absent_index_does_not_create_empty_database(tmp_path: Path) -> 
     with pytest.raises(ProductVectorError, match="not built"):
         ChromaProductVectorStore(persist_directory=target)
     assert not target.exists()
+
+
+def test_page_chunks_preserve_sentences_and_token_budget() -> None:
+    sentences = [
+        "대출 만기 연장은 심사가 필요합니다.",
+        "심사 결과에 따라 연장이 거절될 수 있습니다.",
+        "이자를 납부하지 않으면 연체이자가 발생합니다.",
+        "기존 계약 조건은 거래 은행에 확인해야 합니다.",
+    ]
+
+    # Simulates a tokenizer that needs more than one token per character.
+    def counter(text: str) -> int:
+        return len(text) * 2 + 4
+
+    chunks = split_product_page(
+        "\n\n".join(sentences),
+        chunk_size=200,
+        chunk_overlap=0,
+        token_counter=counter,
+        max_tokens=110,
+    )
+    assert len(chunks) > 1
+    assert all(counter(chunk) <= 110 for chunk in chunks)
+    assert all(any(sentence in chunk for chunk in chunks) for sentence in sentences)
+    assert all(chunk.endswith(".") for chunk in chunks)
+
+
+def test_oversized_single_clause_is_not_silently_dropped() -> None:
+    distinct = " ".join(f"조건{number:03d}" for number in range(100))
+    chunks = split_product_page(distinct, chunk_size=100, chunk_overlap=0)
+    assert " ".join(chunks) == distinct
+
+
+def test_structural_headings_keep_body_but_do_not_merge_unrelated_sections() -> None:
+    text = (
+        "상품 설명서\n"
+        "■ 신용에 미치는 영향\n• 대출계약 체결 시 신용평점에 영향이 있습니다.\n"
+        "■ 유지에 필요한 서류\n• 재무제표와 매출 관련 자료를 요구할 수 있습니다.\n"
+        "▣ 계약기간 및 연장\n• 심사 결과에 따라 연장이 거절될 수 있습니다."
+    )
+    chunks = split_product_page(text, chunk_size=800)
+    assert len(chunks) == 4
+    documents_chunk = next(chunk for chunk in chunks if "재무제표" in chunk)
+    assert "유지에 필요한 서류" in documents_chunk
+    assert "신용평점" not in documents_chunk
+    assert "연장" not in documents_chunk
+
+
+def test_legal_clause_headings_remain_separate() -> None:
+    text = "1조 정의\n이 약정에서 정하는 용어입니다.\n2조 매입 조건\n은행 수락이 필요합니다."
+    chunks = split_product_page(text, chunk_size=800)
+    assert len(chunks) == 2
+    assert chunks[0].startswith("1조 정의")
+    assert chunks[1].startswith("2조 매입 조건")
+
+
+def test_pdf_blank_lines_do_not_detach_conditional_list_from_its_clause() -> None:
+    text = (
+        "3조 환매 의무\n\n"
+        "3.01 다음 경우에는 고객이 은행의 요청에 따라 채권을 환매해야 합니다.\n\n"
+        "(1) 채무자가 유예기간 최종일까지 채권 결제를 하지 않은 경우\n\n"
+        "(2) 계약 이행이 불법이 된 경우\n\n"
+        "3.02 환매가는 별도 약정으로 계산합니다."
+    )
+    chunks = split_product_page(text)
+    conditions = next(chunk for chunk in chunks if "유예기간" in chunk)
+    assert "3.01" in conditions and "환매해야" in conditions
+    assert "(2)" in conditions
+    assert "3.02" not in conditions
+
+
+def test_pdf_document_list_keeps_submission_context() -> None:
+    text = (
+        "고객은 다음 서류를 은행에 제출합니다.\n\n"
+        "(a) 정관과 법인등기부등본\n\n"
+        "(b) 상업송장과 선하증권 원본\n\n"
+        "(c) 이미 제출한 경우 제외되는 자료"
+    )
+    chunks = split_product_page(text)
+    assert len(chunks) == 1
+    assert "은행에 제출" in chunks[0] and "선하증권" in chunks[0]
+
+
+def test_page_mode_indexes_candidate_passages_not_reviewed_answer_spans(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    source = tmp_path / "whole-page.pdf"
+    source.write_bytes(b"test-pdf-placeholder")
+    sentences = [
+        "Repayment is due at maturity. " * 8,
+        "Overdue principal attracts default interest. " * 8,
+        "Extension requires a review and can be declined. " * 8,
+    ]
+    page_text = "\n\n".join(sentences)
+    monkeypatch.setattr(
+        "pypdf.PdfReader",
+        lambda path: SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: page_text)]),
+    )
+    catalog = tmp_path / "page-catalog.json"
+    catalog.write_text(
+        json.dumps(
+            {
+                "schema_version": "kb-product-catalog-v3",
+                "products": [
+                    {
+                        "product_id": "LOAN-GUIDE",
+                        "canonical_name": "Loan guide",
+                        "bank_name": "Test bank",
+                        "source_file": source.name,
+                        "source_url": "https://example.com/loan.pdf",
+                        "reviewed_on": "2026-09-08",
+                        "reviewed_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                        "review_status": "REVIEWED",
+                        "enabled": True,
+                        "selection_reason": "Whole reviewed page",
+                        "scenario_codes": ["WORKING_CAPITAL_LOAN_MATURITY"],
+                        "trade_directions": ["EXPORT"],
+                        "index_mode": "pages",
+                        "include_pages": [1],
+                        "sections": [],
+                    }
+                ],
+            }
+        )
+    )
+    collection = FakeCollection()
+    manifest = build_index_from_current_assets(
+        pdf_directory=tmp_path,
+        catalog_path=catalog,
+        persist_directory=tmp_path / "index",
+        embedding_provider=FakeEmbedding(),
+        collection=collection,
+        chunk_size=250,
+        chunk_overlap=50,
+    )
+    assert manifest["unique_chunk_count"] > 1
+    store = ChromaProductVectorStore(
+        persist_directory=tmp_path / "index",
+        collection=collection,
+        embedding_provider=FakeEmbedding(),
+    )
+    result = store.search(
+        "extension conditions",
+        ["WORKING_CAPITAL_LOAN_MATURITY"],
+        allowed_product_ids=["LOAN-GUIDE"],
+        top_k=2,
+    )
+    assert len(result) == 2
+    assert store.last_search_trace["unique_candidate_count"] > len(result)
+    assert "topic" not in json.dumps(store.last_search_trace["where"])
+    assert all(item["topic"] == "GENERAL" for item in result)
+    assert any("Overdue" in record["document"] for record in collection.records.values())
+    assert any("Extension" in record["document"] for record in collection.records.values())
+
+
+def test_real_tokenizer_budget_is_checked_before_encode() -> None:
+    model = FakeSentenceModel()
+    model.tokenizer = SimpleNamespace(encode=lambda text, **kwargs: list(text))
+    model.max_seq_length = 32
+    embedding = MultilingualE5Embedding("fake-e5", dimension=3, model=model)
+    assert embedding.count_tokens("본문") == len("passage: 본문")
+    with pytest.raises(ProductVectorError, match="token limit"):
+        embedding.embed_documents(["본문" * 30])
+    assert not model.calls
+
+
+def test_page_mode_rejects_answer_anchor_configuration() -> None:
+    from pydantic import ValidationError
+
+    from app.services.product_catalog import ProductRecord
+
+    with pytest.raises(ValidationError, match="answer-span"):
+        ProductRecord.model_validate(
+            {
+                "product_id": "guide",
+                "canonical_name": "Guide",
+                "bank_name": "Bank",
+                "source_file": "guide.pdf",
+                "selection_reason": "Test",
+                "scenario_codes": [],
+                "trade_directions": [],
+                "index_mode": "pages",
+                "include_pages": [1],
+                "sections": [
+                    {
+                        "section_id": "fixed",
+                        "topic": "fixed",
+                        "page": 1,
+                        "start_anchor": "start",
+                        "end_anchor": "end",
+                    }
+                ],
+            }
+        )
+
+
+def test_fresh_rebuild_preserves_active_collection_and_manifest_until_publication(
+    tmp_path: Path,
+) -> None:
+    from app.services.product_vector_store import ProductChunk
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.collections = {"active-old": FakeCollection()}
+            self.collections["active-old"].records["old"] = {
+                "document": "previous evidence",
+                "metadata": {"product_id": "guide"},
+            }
+
+        def get_or_create_collection(self, *, name: str, **kwargs: Any) -> FakeCollection:
+            return self.collections.setdefault(name, FakeCollection())
+
+        def create_collection(self, *, name: str, **kwargs: Any) -> FakeCollection:
+            assert name not in self.collections
+            self.collections[name] = FakeCollection()
+            return self.collections[name]
+
+    client = FakeClient()
+    original_manifest = json.dumps({"collection_name": "active-old"})
+    manifest_path = tmp_path / "product_vector_manifest.json"
+    manifest_path.write_text(original_manifest)
+    store = ChromaProductVectorStore(
+        persist_directory=tmp_path,
+        client=client,
+        collection_name="active-old",
+        embedding_provider=FakeEmbedding(),
+        validate_manifest=False,
+    )
+    store.replace(
+        [ProductChunk("new", "new evidence", {"product_id": "guide"})],
+        fresh_collection=True,
+    )
+    assert store.collection_name != "active-old"
+    assert store.previous_collection_name == "active-old"
+    assert "old" in client.collections["active-old"].records
+    assert "new" in store.collection.records
+    assert manifest_path.read_text() == original_manifest
+
+
+def test_fresh_ann_lookup_failure_keeps_previous_manifest(tmp_path: Path) -> None:
+    from app.services.product_vector_store import ProductChunk
+
+    class UnsearchableCollection(FakeCollection):
+        def query(self, **kwargs: Any) -> dict[str, Any]:
+            return {"documents": [[]]}
+
+    class Client:
+        def get_or_create_collection(self, **kwargs: Any) -> FakeCollection:
+            return FakeCollection()
+
+        def create_collection(self, **kwargs: Any) -> FakeCollection:
+            return UnsearchableCollection()
+
+    manifest_path = tmp_path / "product_vector_manifest.json"
+    original_manifest = json.dumps({"collection_name": "previous"})
+    manifest_path.write_text(original_manifest)
+    store = ChromaProductVectorStore(
+        persist_directory=tmp_path,
+        client=Client(),
+        collection_name="previous",
+        embedding_provider=FakeEmbedding(),
+        validate_manifest=False,
+    )
+    with pytest.raises(ProductVectorError, match="self-retrieval"):
+        store.replace(
+            [ProductChunk("new", "valid row but absent from ANN", {"product_id": "guide"})],
+            fresh_collection=True,
+        )
+    assert manifest_path.read_text() == original_manifest

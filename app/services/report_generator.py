@@ -202,7 +202,7 @@ def _table(
 
 
 class PortfolioReportGenerator:
-    """Render verified structured results without adding new financial judgement."""
+    """Render structured results; source checks do not certify generated claims."""
 
     def generate(
         self,
@@ -308,22 +308,41 @@ class PortfolioReportGenerator:
 
         story.extend([PageBreak(), Paragraph("3. 상황별 확인 정보·상담 준비", styles["heading"])])
         if frozen.service_cards:
-            for card in frozen.service_cards:
-                card_start = len(story)
+            for card_index, card in enumerate(frozen.service_cards):
+                if card_index:
+                    story.append(PageBreak())
                 story.append(Paragraph(_safe(card.title), styles["heading"]))
                 story.append(Paragraph(_safe(card.situation), styles["body"]))
                 for option in card.information:
                     story.append(Paragraph(_safe(option.product_name), styles["body"]))
-                    story.append(
-                        Paragraph(
-                            "검토 목적(서비스 정책): " + _safe(option.why_consider), styles["body"]
+                    story.append(Paragraph(_safe(option.why_consider), styles["small"]))
+                    if option.explanation_points:
+                        for point in option.explanation_points:
+                            point_block = [
+                                Paragraph(_safe(point.question or "확인할 내용"), styles["body"]),
+                                Paragraph("핵심 설명: " + _safe(point.text), styles["body"]),
+                                Paragraph(
+                                    "근거 원문: " + _safe(point.supporting_quote), styles["small"]
+                                ),
+                                Paragraph(
+                                    _safe(
+                                        "; ".join(
+                                            f"{c.source_file} p.{c.page}" for c in point.citations
+                                        )
+                                    ),
+                                    styles["small"],
+                                ),
+                                Spacer(1, 2 * mm),
+                            ]
+                            story.append(KeepTogether(point_block))
+                    else:
+                        story.append(
+                            Paragraph(
+                                "확인한 원문: " + _safe(option.supporting_quote), styles["small"]
+                            )
                         )
-                    )
-                    story.append(
-                        Paragraph("확인한 원문: " + _safe(option.supporting_quote), styles["small"])
-                    )
-                    sources = "; ".join(f"{c.source_file} p.{c.page}" for c in option.citations)
-                    story.append(Paragraph(_safe(sources), styles["small"]))
+                        sources = "; ".join(f"{c.source_file} p.{c.page}" for c in option.citations)
+                        story.append(Paragraph(_safe(sources), styles["small"]))
                 if card.questions:
                     story.append(
                         Paragraph(
@@ -336,7 +355,8 @@ class PortfolioReportGenerator:
                 for notice in card.notices:
                     story.append(Paragraph(_safe(notice), styles["small"]))
                 story.append(Spacer(1, 3 * mm))
-                story[card_start:] = [KeepTogether(story[card_start:])]
+                # Generated explanations can span pages. Keep each point with its
+                # own quote, rather than forcing an entire card onto one page.
         elif not frozen.product_options:
             story.append(
                 Paragraph(
@@ -360,7 +380,10 @@ class PortfolioReportGenerator:
                             if option.financial_institution
                             else ""
                         ),
-                        option.why_consider
+                        (
+                            "\n".join(p.text for p in option.explanation_points)
+                            or option.why_consider
+                        )
                         + "\n확인할 조건: "
                         + "; ".join(option.conditions_to_check),
                         Paragraph(citation_text, styles["cell"]),
@@ -374,16 +397,23 @@ class PortfolioReportGenerator:
                 )
             )
 
+        if frozen.service_cards:
+            story.append(PageBreak())
         story.extend(
             [
                 Paragraph("4. 출처와 확인사항", styles["heading"]),
                 *[Paragraph(_safe(warning), styles["body"]) for warning in frozen.warnings],
                 Paragraph(_safe(frozen.source_notice), styles["body"]),
+                Paragraph(
+                    "설명은 검색한 자료를 바탕으로 AI가 작성했습니다. 출처와 인용문 일치 여부는 확인하지만, "
+                    "설명의 의미·조건·예외 및 고객 계약에 대한 적용 여부는 담당자의 검토가 필요합니다.",
+                    styles["small"],
+                ),
                 Spacer(1, 3 * mm),
                 Paragraph(
                     "보고서 생성일: "
                     f"{frozen.generated_on.isoformat()} · 원본 문서 수: {len(frozen.documents)} · "
-                    f"금융일정 수: {len(frozen.conflicts)} · 근거 있는 상품 수: "
+                    f"금융일정 수: {len(frozen.conflicts)} · 거래별 자료 연결 수: "
                     f"{len(frozen.product_options)}",
                     styles["small"],
                 ),

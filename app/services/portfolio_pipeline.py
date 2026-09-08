@@ -55,6 +55,7 @@ class PortfolioPipeline:
             "conflicts": [],
             "product_options": [],
             "service_cards": [],
+            "retrieval_trace": [],
             "warnings": [],
             "plan": None,
             "pending_call": None,
@@ -209,6 +210,9 @@ class PortfolioPipeline:
                 "conflicts": conflicts,
                 "product_options": options,
                 "service_cards": build_service_cards(conflicts, options),
+                "retrieval_trace": list(
+                    getattr(getattr(self.finance_agent, "retrieval", None), "last_search_trace", [])
+                ),
                 "warnings": [*input_warnings, *warnings],
                 "expected_receipt_date": receipt.expected_receipt_date,
                 "receipt_resolution": receipt,
@@ -222,6 +226,7 @@ class PortfolioPipeline:
                 conflicts=state["conflicts"],
                 product_options=state["product_options"],
                 service_cards=state.get("service_cards", []),
+                retrieval_trace=state.get("retrieval_trace", []),
                 warnings=self._warnings(state),
             )
             report = self.report_generator.generate(payload, request.report_output_path)
@@ -263,6 +268,7 @@ class PortfolioPipeline:
                 "conflicts": state.get("conflicts", []),
                 "product_options": state.get("product_options", []),
                 "service_cards": state.get("service_cards", []),
+                "retrieval_trace": state.get("retrieval_trace", []),
                 "report_path": state.get("report_path"),
                 "warnings": state.get("warnings", []),
                 "trace": state.get("trace", []),

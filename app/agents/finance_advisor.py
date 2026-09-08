@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from collections import Counter
-from copy import deepcopy
+import re
+from collections.abc import Sequence
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.schemas.portfolio import (
     PortfolioCitation,
     PortfolioConflictResult,
     PortfolioDocumentResult,
+    PortfolioExplanationPoint,
     PortfolioProductOption,
     PortfolioRunRequest,
     ReceiptResolution,
@@ -17,54 +18,66 @@ from app.schemas.portfolio import (
 from app.services.financial_calendar import read_financial_calendar
 from app.services.financial_conflict import classify_portfolio_conflicts
 from app.services.financial_retrieval import FinancialRetrieval
-from app.services.llm_controller import RunModel
+from app.services.llm_controller import LLMError, RunModel
 from app.services.receipt_date import resolve_receipt_date
-from app.services.service_policy import POLICIES
+from app.services.service_policy import POLICIES, AnswerSlot, get_answer_slots
 from app.tools.agent_tools import function_tool, invoke, message, observe
 
 
-class ReviewOption(BaseModel):
+class EvidenceSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    event_id: str
-    product_id: str
-    supporting_quote: str | None = Field(
-        min_length=20,
-        max_length=240,
-        description="이 자료의 excerpt 하나에서 핵심 조건·의무 문장을 20~240자 그대로 복사합니다. 요약·의역·다른 자료의 문장 금지. 관련 문장이 없으면 null과 경고를 제출합니다.",
+    selections: dict[str, str | None]
+
+
+class EvidenceExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str | None = Field(
+        min_length=10,
+        max_length=220,
+        description="제공된 본문 하나가 직접 말하는 사실 하나를 조건·대상·예외를 유지해 한 문장으로 설명합니다. 직접 답할 수 없으면 null입니다.",
     )
-    citation_ids: list[str] = Field(min_length=1, max_length=3)
 
 
-class FinancialSubmission(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    options: list[ReviewOption] = Field(max_length=9)
-    warnings: list[str] = Field(max_length=6)
+def has_unresolved_list_reference(text: str) -> bool:
+    """A standalone answer must not refer to a missing list of conditions."""
+    return bool(re.search(r"(?:아래|다음|위)\s*(?:의\s*)?각\s*호", text))
 
 
-def review_context(evidence: list[dict[str, Any]]) -> dict[str, Any]:
-    """Keep full source text, but send repeated provenance metadata only once."""
-    candidates = {}
-    for hit in evidence:
-        candidates[(hit["event_id"], hit["product_id"])] = {
-            key: hit[key]
-            for key in (
-                "event_id",
-                "product_id",
-                "product_name",
-                "financial_institution",
-                "selection_reason",
-                "service_code",
-                "service_title",
-                "customer_need",
-            )
-            if key in hit
-        }
+def slot_evidence(evidence: list[dict[str, Any]], slot: AnswerSlot) -> list[dict[str, Any]]:
+    """Question-specific retrieval candidates, not fixed pages or answer spans."""
+    return [
+        hit
+        for hit in evidence
+        if set(hit.get("query_ids", [])) & set(slot.query_ids) and 12 <= len(hit["excerpt"]) <= 1200
+    ]
+
+
+def selection_context(
+    evidence: list[dict[str, Any]], slots: Sequence[AnswerSlot]
+) -> dict[str, Any]:
+    """Only source selection is performed in this multi-candidate context."""
     return {
-        "candidates": list(candidates.values()),
+        "questions": [
+            {
+                "slot_id": slot.slot_id,
+                "question": slot.title,
+                "evidence_ids": [hit["citation_id"] for hit in slot_evidence(evidence, slot)],
+            }
+            for slot in slots
+        ],
         "evidence": [
             {
                 key: hit[key]
-                for key in ("citation_id", "event_id", "product_id", "page", "topic", "excerpt")
+                for key in (
+                    "citation_id",
+                    "event_id",
+                    "product_id",
+                    "product_name",
+                    "financial_institution",
+                    "page",
+                    "query_ids",
+                    "excerpt",
+                )
                 if key in hit
             }
             for hit in evidence
@@ -72,31 +85,27 @@ def review_context(evidence: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def review_tool(evidence: list[dict[str, Any]]) -> dict[str, Any]:
-    """Allow only retrieved event/product/reference combinations at the API boundary."""
+def selection_tool(evidence: list[dict[str, Any]], slots: Sequence[AnswerSlot]) -> dict[str, Any]:
+    """The model chooses a retrieved ID or abstains; it cannot draft prose here."""
     tool = function_tool(
-        "submit_financial_review",
-        "자료마다 핵심 원문 또는 null을 출처 ID와 제출합니다. 검토 목적·질문은 서버가 작성합니다.",
-        FinancialSubmission,
+        "choose_financial_evidence",
+        "각 핵심 질문에 직접 답하는 검색 본문 ID 하나를 선택하거나 null을 제출합니다.",
+        EvidenceSelection,
     )
-    groups: dict[tuple[str, str], list[str]] = {}
-    for hit in evidence:
-        groups.setdefault((hit["event_id"], hit["product_id"]), []).append(hit["citation_id"])
-    variants = []
-    for (event_id, product_id), refs in groups.items():
-        variant = deepcopy(tool["parameters"]["$defs"]["ReviewOption"])
-        fields = variant["properties"]
-        fields["event_id"]["enum"] = [event_id]
-        fields["product_id"]["enum"] = [product_id]
-        fields["citation_ids"]["items"]["enum"] = refs
-        # All selected topic spans for this source travel together. A risk-only
-        # citation must not be displayed as evidence of unrelated settlement terms.
-        fields["citation_ids"]["minItems"] = len(refs)
-        fields["citation_ids"]["maxItems"] = len(refs)
-        variants.append(variant)
-    tool["parameters"]["$defs"]["ReviewOption"] = {"anyOf": variants}
-    tool["parameters"]["properties"]["options"]["minItems"] = len(groups)
-    tool["parameters"]["properties"]["options"]["maxItems"] = len(groups)
+    fields: dict[str, Any] = {}
+    for slot in slots:
+        ids = [hit["citation_id"] for hit in slot_evidence(evidence, slot)]
+        fields[slot.slot_id] = (
+            {"anyOf": [{"type": "string", "enum": ids}, {"type": "null"}]}
+            if ids
+            else {"type": "null"}
+        )
+    tool["parameters"]["properties"]["selections"] = {
+        "type": "object",
+        "properties": fields,
+        "required": list(fields),
+        "additionalProperties": False,
+    }
     return tool
 
 
@@ -222,93 +231,183 @@ class FinanceAdvisorAgent:
                 ["금융자료 검색 실패: 검토 목록·PDF·Chroma 색인을 확인해 주세요."],
             )
         warnings.extend(search_warnings)
-        observe(model, messages, call, {**review_context(evidence), "warnings": search_warnings})
+        observe(
+            model, messages, call, {"evidence_count": len(evidence), "warnings": search_warnings}
+        )
         if not evidence:
             return conflicts, [], warnings
-        call = invoke(
-            model,
-            "finance",
-            messages,
-            review_tool(evidence),
-        )
-        submission = FinancialSubmission.model_validate(call.arguments)
-        by_id = {hit["citation_id"]: hit for hit in evidence}
-        by_event = {c.event_id: c for c in conflicts if c.status == "CONFLICT"}
         options: list[PortfolioProductOption] = []
-        counts: Counter[str] = Counter()
-        seen: set[tuple[str, str]] = set()
-        for option in submission.options:
-            conflict = by_event.get(option.event_id)
-            hits = [by_id.get(ref) for ref in option.citation_ids]
-            if conflict is None or any(
-                hit is None
-                or hit["event_id"] != option.event_id
-                or hit["product_id"] != option.product_id
-                for hit in hits
-            ):
-                warnings.append(
-                    "존재하지 않거나 다른 거래·상품에 속한 출처가 있어 해당 설명을 제외했습니다."
+        by_event = {c.event_id: c for c in conflicts if c.status == "CONFLICT"}
+        grouped: dict[tuple[str, str], list[PortfolioExplanationPoint]] = {}
+        source_hits: dict[tuple[str, str], dict[str, Any]] = {}
+        for conflict in conflicts:
+            if conflict.status != "CONFLICT":
+                continue
+            event_evidence = [hit for hit in evidence if hit["event_id"] == conflict.event_id]
+            slots = get_answer_slots(
+                conflict.scenario_code,
+                export_receivable_confirmed=(
+                    request.trade_direction == "EXPORT" and request.export_receivable_confirmed
+                ),
+            )
+            if not event_evidence:
+                warnings.extend(
+                    f"{conflict.event_id}: '{slot.title}'는 검색 근거로 확인하지 못했습니다."
+                    for slot in slots
                 )
                 continue
-            if (option.event_id, option.product_id) in seen or counts[option.event_id] >= 3:
-                continue
-            concrete: list[dict[str, Any]] = [hit for hit in hits if hit is not None]
-            required_refs = {
-                hit["citation_id"]
-                for hit in evidence
-                if hit["event_id"] == option.event_id and hit["product_id"] == option.product_id
-            }
-            if set(option.citation_ids) != required_refs:
+            selection_messages = [
+                message(
+                    {
+                        "conflict": conflict.model_dump(mode="json"),
+                        **selection_context(event_evidence, slots),
+                    }
+                )
+            ]
+            try:
+                call = invoke(
+                    model, "finance", selection_messages, selection_tool(event_evidence, slots)
+                )
+            except LLMError:
                 warnings.append(
-                    f"{option.event_id}: 해당 자료의 필수 검색 근거가 빠져 설명을 제외했습니다."
+                    f"{conflict.event_id}: 근거 선택 호출이 실패해 해당 충돌 설명을 보류했습니다."
                 )
                 continue
-            if not option.supporting_quote or not any(
-                option.supporting_quote in hit["excerpt"] for hit in concrete
-            ):
+            try:
+                selection = EvidenceSelection.model_validate(call.arguments)
+            except ValidationError:
                 warnings.append(
-                    f"{option.event_id}: 원문과 일치하지 않는 인용 문장이 있어 설명을 제외했습니다."
+                    f"{conflict.event_id}: 근거 선택 응답 형식이 잘못되어 해당 충돌 설명을 보류했습니다."
                 )
+                observe(model, selection_messages, call, {"accepted_selection_count": 0})
+                model.audit[-1].status = "REJECTED"
+                model.audit[-1].message = "근거 선택 응답 형식 검증 실패"
                 continue
-            counts[option.event_id] += 1
-            seen.add((option.event_id, option.product_id))
+            if set(selection.selections) != {slot.slot_id for slot in slots}:
+                warnings.append(
+                    f"{conflict.event_id}: 요청한 질문과 다른 근거 선택 형식을 제외했습니다."
+                )
+                observe(model, selection_messages, call, {"accepted_selection_count": 0})
+                continue
+            observe(
+                model,
+                selection_messages,
+                call,
+                {"selected_count": sum(ref is not None for ref in selection.selections.values())},
+            )
+            for slot in slots:
+                evidence_id = selection.selections[slot.slot_id]
+                candidates = {
+                    hit["citation_id"]: hit for hit in slot_evidence(event_evidence, slot)
+                }
+                if evidence_id is None:
+                    warnings.append(
+                        f"{conflict.event_id}: '{slot.title}'는 검색 근거로 확인하지 못했습니다."
+                    )
+                    continue
+                hit = candidates.get(evidence_id)
+                if hit is None:
+                    warnings.append(
+                        f"{conflict.event_id}: 질문에 연결되지 않은 근거 ID의 설명을 제외했습니다."
+                    )
+                    continue
+                # One question and one pinned paragraph: no source IDs, other
+                # candidates, prior draft or earlier messages enter this call.
+                explanation_messages = [
+                    message({"question": slot.title, "source_text": hit["excerpt"]})
+                ]
+                try:
+                    explanation_call = invoke(
+                        model,
+                        "finance_explain",
+                        explanation_messages,
+                        function_tool(
+                            "explain_financial_evidence",
+                            "제공된 단일 본문으로 질문에 답하거나 직접 근거가 없으면 null을 제출합니다.",
+                            EvidenceExplanation,
+                        ),
+                    )
+                except LLMError:
+                    warnings.append(
+                        f"{conflict.event_id}: '{slot.title}'의 설명 생성 호출이 실패해 해당 답변을 보류했습니다."
+                    )
+                    continue
+                try:
+                    explanation = EvidenceExplanation.model_validate(explanation_call.arguments)
+                except ValidationError:
+                    warnings.append(
+                        f"{conflict.event_id}: '{slot.title}'의 설명 응답 형식이 잘못되어 해당 답변을 보류했습니다."
+                    )
+                    observe(
+                        model, explanation_messages, explanation_call, {"answer_provided": False}
+                    )
+                    model.audit[-1].status = "REJECTED"
+                    model.audit[-1].message = "설명 응답 형식 검증 실패"
+                    continue
+                if explanation.text is None:
+                    warnings.append(
+                        f"{conflict.event_id}: '{slot.title}'는 선택된 본문에서 확인하지 못했습니다."
+                    )
+                    observe(
+                        model, explanation_messages, explanation_call, {"answer_provided": False}
+                    )
+                    continue
+                if has_unresolved_list_reference(explanation.text):
+                    warnings.append(
+                        f"{conflict.event_id}: '{slot.title}'의 설명이 원문 목록에 의존하여 단독으로 이해하기 어려워 해당 답변을 보류했습니다."
+                    )
+                    observe(
+                        model, explanation_messages, explanation_call, {"answer_provided": False}
+                    )
+                    model.audit[-1].status = "REJECTED"
+                    model.audit[-1].message = "설명에 독립적으로 확인할 수 없는 목록 참조가 남음"
+                    continue
+                # Identity checks establish provenance, not semantic accuracy.
+                citation = PortfolioCitation(
+                    source_file=hit["source_file"],
+                    page=hit["page"],
+                    source_sha256=hit["source_sha256"],
+                    chunk_id=hit["chunk_id"],
+                    excerpt=hit["excerpt"],
+                    topic=hit.get("topic"),
+                    section_id=hit.get("section_id"),
+                    citation_id=hit["citation_id"],
+                    source_url=hit.get("source_url"),
+                )
+                key = (conflict.event_id, hit["product_id"])
+                grouped.setdefault(key, []).append(
+                    PortfolioExplanationPoint(
+                        text=explanation.text,
+                        supporting_quote=hit["excerpt"],
+                        citations=[citation],
+                        slot_id=slot.slot_id,
+                        question=slot.title,
+                    )
+                )
+                source_hits[key] = hit
+                observe(model, explanation_messages, explanation_call, {"answer_provided": True})
+        for (event_id, product_id), points in grouped.items():
+            conflict = by_event[event_id]
+            first_hit = source_hits[(event_id, product_id)]
+            citations = {p.citations[0].citation_id: p.citations[0] for p in points}
             options.append(
                 PortfolioProductOption(
-                    event_id=option.event_id,
+                    event_id=event_id,
                     scenario_code=conflict.scenario_code,
-                    product_id=option.product_id,
-                    product_name=concrete[0]["product_name"],
-                    financial_institution=concrete[0].get("financial_institution"),
+                    product_id=product_id,
+                    product_name=first_hit["product_name"],
+                    financial_institution=first_hit.get("financial_institution"),
                     why_consider=POLICIES[conflict.scenario_code].customer_need,
-                    supporting_quote=option.supporting_quote,
+                    supporting_quote=points[0].supporting_quote,
+                    explanation_points=points,
                     conditions_to_check=list(POLICIES[conflict.scenario_code].questions),
-                    citations=[
-                        PortfolioCitation(
-                            source_file=hit["source_file"],
-                            page=hit["page"],
-                            source_sha256=hit["source_sha256"],
-                            chunk_id=hit["chunk_id"],
-                            excerpt=hit["excerpt"],
-                            topic=hit.get("topic"),
-                            section_id=hit.get("section_id"),
-                        )
-                        for hit in concrete
-                    ],
+                    citations=list(citations.values()),
                 )
             )
-        warnings.extend(submission.warnings)
-        for event_id, product_id in dict.fromkeys(
-            (h["event_id"], h["product_id"]) for h in evidence
-        ):
-            if (event_id, product_id) not in seen:
-                warnings.append(
-                    f"{event_id}: {product_id}의 원문 선택이 누락되거나 검증되지 않아 해당 자료를 보류했습니다."
-                )
         covered = {option.event_id for option in options}
         warnings.extend(
-            f"{c.event_id}: 관련 조건을 확인할 근거가 부족해 상품 정보를 제시하지 않았습니다."
+            f"{c.event_id}: 제공 가능한 금융 설명이 없습니다. 검색·근거 선택·설명 생성 단계의 확인사항을 살펴봐 주세요."
             for c in conflicts
             if c.status == "CONFLICT" and c.event_id not in covered
         )
-        observe(model, messages, call, {"accepted_option_count": len(options)})
         return conflicts, options, list(dict.fromkeys(warnings))

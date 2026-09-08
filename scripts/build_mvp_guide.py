@@ -1,4 +1,11 @@
-"""Build a public, source-quote-free explanation of the implemented MVP."""
+"""Historical fixed-excerpt MVP guide builder, NOT the current RAG design.
+
+The retained docs/TradeFlow-MVP-Guide.pdf describes manifest v3: preselected
+answer spans and LLM quote selection. Read docs/service-mvp.md and
+docs/rag-corpus-guide.md for the current multi-passage retrieval and grounded
+explanation design. Legacy regeneration requires an explicit flag and v3 data;
+its outputs must not overwrite the current verification summary or guide.
+"""
 
 from __future__ import annotations
 
@@ -31,11 +38,24 @@ from app.services.report_generator import (  # noqa: E402
 
 
 def main() -> None:
+    if "--legacy-fixed-excerpt" not in sys.argv:
+        raise SystemExit(
+            "이 스크립트는 고정 본문 발췌 방식의 이전 v3 설명서 생성기입니다. "
+            "현재 구조는 docs/service-mvp.md와 docs/rag-corpus-guide.md를 확인하세요. "
+            "과거 실행 자료로만 재현하려면 --legacy-fixed-excerpt를 명시하세요."
+        )
     result = json.loads((ROOT / "output/example/live-result.json").read_text())
     verification = result["verification"]
     manifest = json.loads(
         (ROOT / "data/knowledge/chroma_products/product_vector_manifest.json").read_text()
     )
+    if manifest.get("schema_version") != "product-vector-manifest-v3" or any(
+        option.get("explanation_points") for option in result.get("product_options", [])
+    ):
+        raise SystemExit(
+            "현재 검색·설명 생성 결과를 이전 발췌 방식 설명서에 사용할 수 없습니다. "
+            "과거 v3 색인과 같은 실행의 결과가 필요합니다. 파일은 변경하지 않았습니다."
+        )
     summary = {
         "scope": "One synthetic export transaction; not a financial accuracy benchmark",
         "run_id": verification["run_id"],
@@ -59,7 +79,7 @@ def main() -> None:
         ],
         "warnings": result["warnings"],
     }
-    (ROOT / "docs/verification-summary.json").write_text(
+    (ROOT / "docs/verification-summary-legacy-v3.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
     )
     font = _register_font()
@@ -76,7 +96,7 @@ def main() -> None:
     def title(number: int, heading: str, subtitle: str) -> None:
         if number > 1:
             story.append(PageBreak())
-        p(f"TRADEFLOW / MVP GUIDE / 0{number}", "small")
+        p(f"TRADEFLOW / LEGACY FIXED-EXCERPT V3 / 0{number}", "small")
         p(heading, "title")
         p(subtitle, "subtitle")
         story.append(HRFlowable(width="100%", thickness=1.2, color=BLUE, spaceAfter=5 * mm))
@@ -88,7 +108,7 @@ def main() -> None:
     title(
         1,
         "금융일정 충돌을\n상담 준비 정보로",
-        "구현 설명서 · 2026-09-08 · 신입 포트폴리오 / 면접 설명용",
+        "이전 v3 기록 · 고정 본문 발췌 방식 · 현재 RAG 설계와 다릅니다",
     )
     p("무엇을 해결하나요?", "heading")
     p(
@@ -309,7 +329,7 @@ def main() -> None:
         "금융 전문가 검증, 다양한 스캔·계약의 품질 평가, 최신 약관 갱신, 인증·권한·개인정보 통제는 후속 과제입니다. 현업 배포나 일반적인 금융 판단 정확도를 입증한 프로젝트로 설명하지 않습니다.",
         "small",
     )
-    output = ROOT / "output/pdf/TradeFlow-MVP-Guide.pdf"
+    output = ROOT / "output/pdf/TradeFlow-MVP-Guide-Legacy-v3.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
         str(output),
@@ -317,13 +337,13 @@ def main() -> None:
         rightMargin=18 * mm,
         topMargin=17 * mm,
         bottomMargin=20 * mm,
-        title="TradeFlow 서비스 중심 MVP 구현 설명서",
+        title="TradeFlow 이전 v3 고정 본문 발췌 MVP 설명서",
         author="TradeFlow",
     )
     footer = partial(_footer, font=font)
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     # This authored guide contains no customer data or bank source excerpts.
-    (ROOT / "docs/TradeFlow-MVP-Guide.pdf").write_bytes(output.read_bytes())
+    (ROOT / "docs/TradeFlow-MVP-Guide-Legacy-v3.pdf").write_bytes(output.read_bytes())
     print(output)
 
 

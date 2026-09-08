@@ -19,9 +19,10 @@ from app.graphs.compiled import build_portfolio_graph  # noqa: E402
 from app.schemas.orchestration import ModelCall  # noqa: E402
 from app.schemas.portfolio import PortfolioRunRequest  # noqa: E402
 from app.services.financial_calendar import read_financial_calendar  # noqa: E402
-from app.services.llm_controller import LLMSettings, OpenAIToolCallingModel  # noqa: E402
+from app.services.llm_controller import LLMError, LLMSettings, OpenAIToolCallingModel  # noqa: E402
 from app.services.portfolio_pipeline import PortfolioPipeline  # noqa: E402
 from app.services.product_vector_store import ChromaProductVectorStore  # noqa: E402
+from app.services.service_policy import get_answer_slots  # noqa: E402
 
 
 class RecordedLiveModel:
@@ -31,12 +32,30 @@ class RecordedLiveModel:
         self.delegate = OpenAIToolCallingModel(settings)
         self.path = path
         self.records: list[dict[str, Any]] = []
+        self.failures: list[dict[str, Any]] = []
+        self.attempts = 0
 
     def call(self, **kwargs: Any) -> ModelCall:
-        result = self.delegate.call(**kwargs)
+        self.attempts += 1
+        try:
+            result = self.delegate.call(**kwargs)
+        except LLMError as exc:
+            # LLMError contains only our sanitized message, never provider bodies.
+            self.failures.append(
+                {
+                    "attempt": self.attempts,
+                    "tool": kwargs.get("forced_tool"),
+                    "reason": str(exc),
+                }
+            )
+            self.path.with_name(self.path.stem + "-errors.json").write_text(
+                json.dumps(self.failures, ensure_ascii=False, indent=2)
+            )
+            print(f"LLM attempt {self.attempts}: {exc}", flush=True)
+            raise
         self.records.append(result.model_dump(exclude={"response_items"}))
         self.path.write_text(json.dumps(self.records, ensure_ascii=False, indent=2))
-        print(f"LLM call {len(self.records)}: {result.name} completed", flush=True)
+        print(f"LLM attempt {self.attempts}: {result.name} completed", flush=True)
         return result
 
 
@@ -51,15 +70,15 @@ def load_example() -> PortfolioRunRequest:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--live", action="store_true", help="Actually call OpenAI, at most 12 calls; paid."
+        "--live", action="store_true", help="Actually call OpenAI, at most 20 calls; paid."
     )
     args = parser.parse_args()
     settings = LLMSettings.from_env().model_copy(
         update={
             "model": "gpt-5-nano",
             "service_tier": "flex",
-            "max_calls": 12,
-            "max_output_tokens": 2000,
+            "max_calls": 20,
+            "max_output_tokens": 6000,
             "timeout_seconds": 180,
         }
     )
@@ -113,6 +132,19 @@ def main() -> int:
             {r["served_service_tier"] or "unknown" for r in model.records}
         ),
         "run_id": run_id,
+        "completed_llm_calls": len(model.records),
+        "failed_llm_calls": model.failures,
+        "index": {
+            key: manifest[key]
+            for key in (
+                "schema_version",
+                "collection_name",
+                "product_count",
+                "record_count",
+                "unique_chunk_count",
+                "corpus_fingerprint",
+            )
+        },
         "estimated_usd_upper_standard_rate": round(
             (result.input_tokens * 0.05 + result.output_tokens * 0.40) / 1_000_000, 8
         ),
@@ -133,14 +165,37 @@ def main() -> int:
         and all(c.status == "INFORMATION" for c in result.service_cards),
         "quotes_match_sources": bool(result.product_options)
         and all(
-            o.supporting_quote and any(o.supporting_quote in c.excerpt for c in o.citations)
+            p.supporting_quote in c.excerpt
             for o in result.product_options
+            for p in o.explanation_points
+            for c in p.citations
         ),
-        "reviewed_topics_only": bool(result.product_options)
+        "page_provenance_present": bool(result.product_options)
         and all(
-            c.topic and c.topic != "GENERAL" and c.section_id
+            c.page >= 1 and c.chunk_id and c.source_sha256
             for o in result.product_options
             for c in o.citations
+        ),
+        "generated_explanations_present": bool(result.product_options)
+        and all(o.explanation_points for o in result.product_options),
+        "all_key_questions_answered": {
+            (o.event_id, p.slot_id) for o in result.product_options for p in o.explanation_points
+        }
+        == {
+            (c.event_id, slot.slot_id)
+            for c in result.conflicts
+            if c.status == "CONFLICT"
+            for slot in get_answer_slots(
+                c.scenario_code,
+                export_receivable_confirmed=request.trade_direction == "EXPORT"
+                and request.export_receivable_confirmed,
+            )
+        },
+        "real_retrieval_choices": bool(result.retrieval_trace)
+        and all(
+            t.get("unique_candidate_count", 0) > 1 and t.get("topic_filter") is None
+            for t in result.retrieval_trace
+            if t.get("status") == "SEARCHED"
         ),
         "scanned_invoice_ocr": any(d.ocr_backend == "rapidocr_onnx" for d in result.documents),
         "report_created": bool(result.report_path and Path(result.report_path).is_file()),
